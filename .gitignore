@@ -55,4 +55,4 @@ static_root/
 media/
 # ML model cache
 bot_backend/.cache/
-.cache/
+.cache/"test_api_keys.py" 
