@@ -16,11 +16,15 @@ export default function Login() {
         setLoading(true);
         try {
             const data = await apiClient('/auth/login/', { method: 'POST', body: formData });
-            if (data.access) {
-                login(data.access);
+            const access = data?.tokens?.access;
+            const refresh = data?.tokens?.refresh;
+            const user = data?.user;   // 👈 from backend
+            
+            if (access) {
+                login({ access, refresh, user });
             }
         } catch (err) {
-            setError(err.detail || 'Invalid username or password.');
+            setError(err?.error || err?.detail || 'Invalid username or password.');
         } finally {
             setLoading(false);
         }

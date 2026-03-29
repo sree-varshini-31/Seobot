@@ -79,8 +79,8 @@ def api_root(request):
             "login":       "POST /api/auth/login/",
             "logout":      "POST /api/auth/logout/",
             "profile":     "GET  /api/auth/profile/",
-            "analyze":     "GET  /api/analyze/?url=https://yoursite.com",
-            "analyze_refresh": "GET  /api/analyze/?url=https://yoursite.com&refresh=true",
+            "analyze":     "GET  /api/analyze/?url=…  (6h server-side refresh; same URL reuses cache)",
+            "analyze_refresh": "GET  /api/analyze/?url=…&refresh=true  (internal only)",
             "my_projects": "GET  /api/data/",
             "my_analytics":"GET  /api/analytics/<project_id>/",
         },
@@ -104,10 +104,8 @@ def analyze_site(request):
     """
     Analyze a URL for the logged-in user.
 
-    Cache behaviour:
-      - If the same user already analyzed this URL and cache is < 24h old → return cached data instantly (no API calls).
-      - If cache is stale (> 24h) or missing → run full analysis, store result, reset expiry.
-      - Pass ?refresh=true to force a fresh analysis regardless of cache age.
+    Cache: same user + URL returns stored audit for up to 6 hours (reduces SerpAPI cost).
+    After expiry, the next request runs a full fresh pipeline. Optional ?refresh=true for ops only.
     """
     url = request.data.get("url") if request.method == "POST" else request.GET.get("url")
     force_refresh = request.GET.get("refresh", "").lower() in ("true", "1", "yes")
@@ -131,14 +129,13 @@ def analyze_site(request):
                 counter += 1
             project = Project.objects.create(url=url, user=request.user, name=name)
 
-        # ── Serve from cache if fresh and not forcing refresh ──────────────
+        # ── Serve from cache if within 6h window (no extra SerpAPI calls) ───
         if not force_refresh and project.is_cache_valid():
             return Response({
                 "success": True,
                 "project_id": project.id,
-                "cached": True,
-                "last_analyzed_at": project.last_analyzed_at.isoformat(),
-                "cache_expires_at": project.cache_expires_at.isoformat(),
+                "last_analyzed_at": project.last_analyzed_at.isoformat() if project.last_analyzed_at else None,
+                "next_refresh_after": project.cache_expires_at.isoformat() if project.cache_expires_at else None,
                 "data": project.analytics_cache,
             })
 
@@ -149,7 +146,7 @@ def analyze_site(request):
         if result.get("error"):
             return Response({"success": False, "error": result["error"]}, status=500)
 
-        # ── Persist cache on project ───────────────────────────────────────
+        # ── Persist full snapshot on project + history table ────────────────
         project.set_cache(result)
 
         # ── SEOAuditHistory — full snapshot ───────────────────────────────
@@ -163,9 +160,10 @@ def analyze_site(request):
 
         # ── Keywords ──────────────────────────────────────────────────────
         from keywords.models import Keyword, KeywordTrend
+        vol_map = result.get("keyword_search_volume") or {}
         for kw_data in result.get("keywords", []):
             kw = kw_data.get("keyword") if isinstance(kw_data, dict) else kw_data
-            vol = kw_data.get("search_volume", 0) if isinstance(kw_data, dict) else 0
+            vol = vol_map.get(kw) or (kw_data.get("search_volume", 0) if isinstance(kw_data, dict) else 0)
             keyword_obj, _ = Keyword.objects.get_or_create(
                 keyword=kw, project=project, defaults={"search_volume": vol}
             )
@@ -226,9 +224,8 @@ def analyze_site(request):
         return Response({
             "success": True,
             "project_id": project.id,
-            "cached": False,
             "last_analyzed_at": project.last_analyzed_at.isoformat(),
-            "cache_expires_at": project.cache_expires_at.isoformat(),
+            "next_refresh_after": project.cache_expires_at.isoformat() if project.cache_expires_at else None,
             "data": result,
         })
 

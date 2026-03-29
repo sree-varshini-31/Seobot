@@ -18,8 +18,13 @@ class ArticleViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.is_staff:
-            return Article.objects.all().order_by("-created_at")
-        return Article.objects.filter(project__user=user).order_by("-created_at")
+            qs = Article.objects.all().order_by("-created_at")
+        else:
+            qs = Article.objects.filter(project__user=user).order_by("-created_at")
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        return qs.select_related("project")
 
     @action(detail=False, methods=["post"])
     def generate(self, request):
@@ -308,3 +313,4 @@ def qa_schema_generator(request):
         },
     }
     return Response({"success": True, "schema": json.dumps(schema, indent=2)})
+    

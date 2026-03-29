@@ -1,34 +1,35 @@
-# Audit views — SEO audit is handled via /api/analyze/ endpoint
-# These endpoints are kept for backwards compatibility
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 
-from django.http import JsonResponse
+from services.seo_analyzer import analyze_website
 
+
+@api_view(["GET"])
 def audit_website(request):
-    return JsonResponse({
-        "message": "Please use /api/analyze/?url=<your_url> for full SEO analysis"
-    })
+    """
+    Real-time SEO audit endpoint using SerpAPI + Groq.
 
-def extract_keywords(request):
-    return JsonResponse({
-        "message": "Please use /api/analyze/?url=<your_url> for keyword extraction"
-    })
+    This delegates to the shared `analyze_website` pipeline, which:
+    - crawls the site,
+    - calls SerpAPI for live SERP/keyword data,
+    - calls Groq for AI suggestions,
+    - runs technical SEO + readability checks.
+    """
+    url = request.query_params.get("url") or request.GET.get("url")
 
-def keyword_research(request):
-    return JsonResponse({
-        "message": "Please use /api/analyze/?url=<your_url> for keyword research"
-    })
+    if not url:
+        return Response({"success": False, "error": "URL required"}, status=400)
 
-def seo_report(request):
-    return JsonResponse({
-        "message": "Please use /api/analyze/?url=<your_url> for SEO report"
-    })
+    try:
+        # project_id is optional for one-off audits
+        result = analyze_website(project_id=None, url=url)
 
-def competitor_analysis(request):
-    return JsonResponse({
-        "message": "Please use /api/analyze/?url=<your_url> for competitor analysis"
-    })
+        # `analyze_website` returns {"error": "..."} on failure
+        if isinstance(result, dict) and result.get("error"):
+            return Response({"success": False, "error": result["error"]}, status=400)
 
-def crawl_website(request):
-    return JsonResponse({
-        "message": "Please use /api/analyze/?url=<your_url> for website crawling"
-    })
+        # Frontend `Audit.jsx` expects the raw data object (no nesting under "data")
+        return Response(result)
+
+    except Exception as e:
+        return Response({"success": False, "error": str(e)}, status=500)

@@ -1,14 +1,18 @@
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.decorators import throttle_classes
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.contrib.auth.models import User
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import UserProfile
 
 
 class LoginThrottle(AnonRateThrottle):
@@ -30,6 +34,24 @@ def get_tokens(user):
 def _is_admin(user):
     """Admin = is_staff. No superuser distinction."""
     return user.is_staff
+
+
+def _user_public_dict(request, user):
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    avatar_url = None
+    if profile.avatar:
+        avatar_url = request.build_absolute_uri(profile.avatar.url)
+    display = (user.first_name or "").strip() or user.username
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name or "",
+        "name": display,
+        "avatar": avatar_url,
+        "role": "admin" if _is_admin(user) else "user",
+        "plan": "Free Plan",
+    }
 
 
 def _admin_required(request):
@@ -81,7 +103,7 @@ def register(request):
     return Response({
         "success": True,
         "message": "Account created successfully",
-        "user": {"id": user.id, "username": user.username, "email": user.email, "role": "user"},
+        "user": _user_public_dict(request, user),
         "tokens": tokens,
     }, status=status.HTTP_201_CREATED)
 
@@ -104,12 +126,7 @@ def login(request):
     return Response({
         "success": True,
         "message": "Login successful",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "role": "admin" if _is_admin(user) else "user",
-        },
+        "user": _user_public_dict(request, user),
         "tokens": tokens,
     })
 
@@ -129,13 +146,43 @@ def logout(request):
     return Response({"success": True, "message": "Logged out successfully"})
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
+@parser_classes([JSONParser, FormParser, MultiPartParser])
 def profile(request):
-    """Each user sees only their own data."""
+    """Read or update own profile (username / email)."""
     user = request.user
     from projects.models import Project
     from audit.models import SEOAuditHistory
+
+    if request.method == "PATCH":
+        if "username" in request.data:
+            new_username = (request.data.get("username") or "").strip()
+            if len(new_username) < 3:
+                return Response({"success": False, "error": "Username must be at least 3 characters"}, status=400)
+            if new_username != user.username and User.objects.filter(username=new_username).exclude(pk=user.pk).exists():
+                return Response({"success": False, "error": "Username already taken"}, status=400)
+            user.username = new_username
+
+        if "email" in request.data:
+            new_email = (request.data.get("email") or "").strip().lower()
+            if not new_email:
+                return Response({"success": False, "error": "Email is required"}, status=400)
+            if new_email != user.email:
+                current_pw = (request.data.get("current_password") or "").strip()
+                if not user.check_password(current_pw):
+                    return Response(
+                        {"success": False, "error": "Current password is required to change your email."},
+                        status=400,
+                    )
+                if User.objects.filter(email=new_email).exclude(pk=user.pk).exists():
+                    return Response({"success": False, "error": "Email already in use"}, status=400)
+            user.email = new_email
+
+        if "first_name" in request.data:
+            user.first_name = (request.data.get("first_name") or "").strip()[:150]
+
+        user.save()
 
     from django.db.models import OuterRef, Subquery
     latest_score_sq = SEOAuditHistory.objects.filter(
@@ -159,18 +206,97 @@ def profile(request):
                 "cache_fresh": p.is_cache_valid(),
             })
 
+    udict = _user_public_dict(request, user)
+    udict["date_joined"] = user.date_joined.strftime("%Y-%m-%d")
+    udict["total_projects"] = projects.count()
+    udict["my_projects"] = latest_scores
+
     return Response({
         "success": True,
         "role": "admin" if _is_admin(user) else "user",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "date_joined": user.date_joined.strftime("%Y-%m-%d"),
-            "total_projects": projects.count(),
-            "my_projects": latest_scores,
-        }
+        "user": udict,
     })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def profile_insights(request):
+    """Projects + daily audit history for charts (from SEOAuditHistory)."""
+    from django.utils import timezone
+    from datetime import timedelta
+    from projects.models import Project
+    from audit.models import SEOAuditHistory
+
+    user = request.user
+    since = timezone.now() - timedelta(days=90)
+
+    out = []
+    for proj in Project.objects.filter(user=user).order_by("-last_analyzed_at", "-created_at"):
+        audits = SEOAuditHistory.objects.filter(project=proj, created_at__gte=since).order_by("created_at")
+        timeline = []
+        for a in audits:
+            timeline.append({
+                "date": a.created_at.strftime("%Y-%m-%d %H:%M"),
+                "score": a.seo_score,
+                "issues": a.issues_count,
+            })
+        latest = SEOAuditHistory.objects.filter(project=proj).order_by("-created_at").first()
+        out.append({
+            "id": proj.id,
+            "name": proj.name,
+            "url": proj.url,
+            "last_analyzed_at": proj.last_analyzed_at.isoformat() if proj.last_analyzed_at else None,
+            "next_refresh_after": proj.cache_expires_at.isoformat() if proj.cache_expires_at else None,
+            "cache_active": proj.is_cache_valid(),
+            "latest_score": latest.seo_score if latest else None,
+            "audit_timeline": timeline,
+        })
+
+    return Response({"success": True, "projects": out})
+
+
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAuthenticated])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
+def profile_avatar(request):
+    """POST: multipart field `avatar`. DELETE: remove custom avatar."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    if request.method == "DELETE":
+        if profile.avatar:
+            profile.avatar.delete(save=False)
+            profile.avatar = None
+            profile.save()
+        return Response({"success": True, "user": _user_public_dict(request, request.user)})
+
+    f = request.FILES.get("avatar")
+    if not f:
+        return Response({"success": False, "error": "No file field `avatar`"}, status=400)
+    if f.size > 5 * 1024 * 1024:
+        return Response({"success": False, "error": "Image must be under 5MB"}, status=400)
+    profile.avatar.save(f.name, f, save=True)
+    return Response({
+        "success": True,
+        "user": _user_public_dict(request, request.user),
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    old_pw = (request.data.get("old_password") or "").strip()
+    new_pw = (request.data.get("new_password") or "").strip()
+    if not old_pw or not new_pw:
+        return Response({"success": False, "error": "old_password and new_password required"}, status=400)
+    if not request.user.check_password(old_pw):
+        return Response({"success": False, "error": "Current password is incorrect"}, status=400)
+    try:
+        validate_password(new_pw, user=request.user)
+    except ValidationError as e:
+        return Response({"success": False, "error": list(e.messages)}, status=400)
+    request.user.set_password(new_pw)
+    request.user.save()
+    update_session_auth_hash(request, request.user)
+    return Response({"success": True, "message": "Password updated"})
 
 
 # ─────────────────────────────────────────

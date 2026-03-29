@@ -16,7 +16,9 @@ SECRET_KEY = os.environ.get(
     '-RxvipwBzaqML8BTmP2WqvVNqrDpl_2ZSKn8tb9HdfQQ7KM_wRMcK4W1Xu9vDzpm3KM'
 )
 
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+# FIX: Default to True for local development
+# In production, set DEBUG=False in your .env file
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -30,23 +32,25 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
+    # FIX: whitenoise.runserver_nostatic MUST come before staticfiles
     'whitenoise.runserver_nostatic',
-    'keywords',
+    'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'corsheaders',
+    'accounts.apps.AccountsConfig',
     'projects',
     'audit',
+    'keywords',
     'generator',
     'monitoring',
-    'corsheaders',
-    'accounts',
-    'rest_framework_simplejwt.token_blacklist',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    # FIX: CorsMiddleware must be as high as possible, before CommonMiddleware
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -106,16 +110,33 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # ─── CORS ────────────────────────────────────────────────────────────────────
-CORS_ALLOW_ALL_ORIGINS = False
+# Vite dev server runs on 5173 — this must match exactly
 CORS_ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:3000,http://127.0.0.1:3000'
+        'http://localhost:5173,http://127.0.0.1:5173'
     ).split(',')
     if o.strip()
 ]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_ALLOW_CREDENTIALS = True
 
 # ─── REST Framework ──────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
@@ -123,7 +144,6 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
-    # Secure default: require login everywhere; mark public views explicitly
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
@@ -138,16 +158,15 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/day',
         'user': '1000/day',
-        'login': '5/minute',      # brute force protection on login
-        'register': '10/hour',    # prevent mass account creation
+        'login': '5/minute',
+        'register': '10/hour',
     },
 }
 
 # ─── Request size limits ─────────────────────────────────────────────────────
-# Prevent large payload attacks — max 1MB per request
-DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576   # 1MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 1048576   # 1MB
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 100     # max form fields
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 100
 
 # ─── API Keys ────────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
@@ -157,7 +176,7 @@ SERPAPI_API_KEY = os.environ.get('SERPAPI_API_KEY')
 PROJECT_NAME = 'SEO Bot AI'
 PROJECT_VERSION = '1.0.0'
 
-# ─── Suppress noisy HuggingFace / sentence-transformers startup logs ────────
+# ─── Suppress noisy HuggingFace / sentence-transformers startup logs ─────────
 import os as _os
 _os.environ.setdefault('TOKENIZERS_PARALLELISM', 'false')
 _os.environ.setdefault('TRANSFORMERS_VERBOSITY', 'error')
@@ -201,10 +220,8 @@ CACHES = {
 }
 
 # ─── Sessions ────────────────────────────────────────────────────────────────
-# Store sessions in DB (not cookies) — prevents "Session data corrupted" warning
-# caused by old/incompatible browser cookies after migrations
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
-SESSION_COOKIE_AGE = 86400  # 1 day in seconds
+SESSION_COOKIE_AGE = 86400
 SESSION_SAVE_EVERY_REQUEST = False
 
 # ─── JWT Auth ────────────────────────────────────────────────────────────────

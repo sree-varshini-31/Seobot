@@ -32,8 +32,8 @@ function StatCard({ icon, label, value, trend, loading }) {
                 ) : trendLabel ? (
                     <div
                         className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${isPositive
-                                ? 'text-success bg-success/10'
-                                : 'text-error bg-error/10'
+                            ? 'text-success bg-success/10'
+                            : 'text-error bg-error/10'
                             }`}
                     >
                         <span className="material-symbols-outlined text-sm">
@@ -135,18 +135,17 @@ export default function Dashboard() {
             setLoading(true);
             setError(null);
             try {
-                const [projsRes, artsRes, keywordsRes, auditsRes, healthRes] =
+                const [projsRes, artsRes] =
                     await Promise.allSettled([
                         apiClient('/data/'),
                         apiClient('/generator/articles/'),
-                        apiClient('/keywords/').catch(() => null),   // optional endpoint
-                        apiClient('/audits/').catch(() => null),     // optional endpoint
-                        apiClient('/system/health/').catch(() => null), // optional endpoint
                     ]);
 
                 // ── Projects ──────────────────────────────────────────────
                 const projsData =
                     projsRes.status === 'fulfilled' ? projsRes.value : null;
+                console.log('projsData:', projsData); // 👈 debug
+
                 const projectsList = Array.isArray(projsData)
                     ? projsData
                     : projsData?.projects ?? projsData?.results ?? [];
@@ -154,43 +153,46 @@ export default function Dashboard() {
                 // ── Articles ──────────────────────────────────────────────
                 const artsData =
                     artsRes.status === 'fulfilled' ? artsRes.value : null;
-                // Use paginated `count` when available for accurate total
+                console.log('artsData:', artsData); // 👈 debug
+
                 const articleCount =
                     artsData?.count ??
                     (Array.isArray(artsData)
                         ? artsData.length
                         : artsData?.results?.length ?? 0);
 
-                // ── Keywords ──────────────────────────────────────────────
-                const kwData =
-                    keywordsRes.status === 'fulfilled' ? keywordsRes.value : null;
-                const keywordCount =
-                    kwData?.count ??
-                    (Array.isArray(kwData) ? kwData.length : kwData?.results?.length ?? 0);
+                // ── Keywords — derived from projects ──────────────────────
+                const keywordCount = projectsList.reduce(
+                    (acc, p) => acc + (p.keyword_count ?? p.keywords?.length ?? 0),
+                    0
+                );
 
-                // ── Audits ────────────────────────────────────────────────
-                const audData =
-                    auditsRes.status === 'fulfilled' ? auditsRes.value : null;
-                const auditCount =
-                    audData?.count ??
-                    (Array.isArray(audData) ? audData.length : audData?.results?.length ?? 0);
+                // ── Audits — projects that have been analyzed ─────────────
+                const auditCount = projectsList.filter(
+                    (p) => p.last_analyzed_at != null
+                ).length;
 
-                // ── System Health ─────────────────────────────────────────
-                const healthData =
-                    healthRes.status === 'fulfilled' ? healthRes.value : null;
-                setSystemHealth(healthData?.score ?? healthData?.health ?? 92); // fallback 92
+                // ── System Health — avg SEO score ─────────────────────────
+                const avgScore =
+                    projectsList.length > 0
+                        ? Math.round(
+                            projectsList.reduce(
+                                (acc, p) => acc + (p.latest_score ?? p.seo_score ?? 0),
+                                0
+                            ) / projectsList.length
+                        )
+                        : 92; // fallback
 
-                // ── Trends (from API if available, else null = hidden) ────
+                setSystemHealth(avgScore);
                 setTrends({
-                    projects: projsData?.trends?.projects ?? null,
-                    articles: artsData?.trends?.articles ?? null,
-                    keywords: kwData?.trends?.keywords ?? null,
-                    audits: audData?.trends?.audits ?? null,
+                    projects: null,
+                    articles: null,
+                    keywords: null,
+                    audits: null,
                 });
-
                 setProjects(projectsList.slice(0, 5));
                 setStats({
-                    projects: projectsList.length,
+                    projects: projsData?.count ?? projectsList.length,
                     articles: articleCount,
                     keywords: keywordCount,
                     audits: auditCount,
@@ -228,7 +230,7 @@ export default function Dashboard() {
             {/* ── Header ───────────────────────────────────────────────── */}
             <section>
                 <h2 className="text-3xl font-extrabold tracking-tight text-on-surface">
-                    {getGreeting()} 👋
+                    {getGreeting()} 
                 </h2>
                 <p className="text-outline font-medium mt-1">Today is {todayDate}</p>
             </section>
@@ -291,7 +293,7 @@ export default function Dashboard() {
                                     <ProjectRow
                                         key={proj.id ?? idx}
                                         proj={proj}
-                                        onClick={() => navigate('/projects')}
+                                        onClick={() => navigate('/profile')}
                                     />
                                 ))}
                             </div>
@@ -311,7 +313,7 @@ export default function Dashboard() {
                             { route: '/audit', icon: 'search_check', label: 'Run SEO Audit' },
                             { route: '/keywords', icon: 'key', label: 'Research Keywords' },
                             { route: '/articles', icon: 'edit_note', label: 'Generate Article' },
-                            { route: '/plan', icon: 'calendar_add_on', label: 'Build Content Plan' },
+                            { route: '/profile', icon: 'analytics', label: 'Project history' },
                         ].map(({ route, icon, label }) => (
                             <button
                                 key={route}

@@ -402,8 +402,27 @@ function Audit({ projectId }) {
         setLoading(false);
     };
 
-    const techChecks = result?.technical_seo || result?.seo_checks || {};
-    const issues = result?.issues || [];
+    const rawTechChecks = result?.technical_seo || result?.seo_checks || {};
+    const techChecks = Object.entries(rawTechChecks).map(([key, value]) => {
+        let status = null;
+
+        if (typeof value === "boolean") {
+            status = value;
+        } else if (value && typeof value === "object") {
+            if ("exists" in value) status = value.exists;
+            else if ("https" in value) status = value.https;
+            else if ("is_noindex" in value) status = !value.is_noindex;
+            else if ("blocks_all_crawlers" in value) status = !value.blocks_all_crawlers;
+        }
+
+        return { key, value, status };
+    });
+
+    const issues = (result?.issues || []).map((issue) =>
+        typeof issue === "string"
+            ? { severity: "warning", message: issue }
+            : issue
+    );
 
     return (
         <div className="fade-up">
@@ -439,14 +458,13 @@ function Audit({ projectId }) {
                         {/* Technical checks */}
                         <Card>
                             <div style={{ fontSize: 14, fontWeight: 700, color: "#0d0d12", marginBottom: 14 }}>Technical Checks</div>
-                            {Object.keys(techChecks).length === 0 ? (
+                            {techChecks.length === 0 ? (
                                 <div style={{ fontSize: 13, color: "#b8b4cc" }}>No technical data returned</div>
-                            ) : Object.entries(techChecks).slice(0, 12).map(([k, v]) => (
-                                <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #f5f3ff", fontSize: 13 }}>
-                                    <span style={{ color: "#4a4868", textTransform: "capitalize" }}>{k.replace(/_/g, " ")}</span>
-                                    <span style={{ display: "flex", alignItems: "center", gap: 4, color: v === true ? "#16a34a" : v === false ? "#dc2626" : "#d97706", fontWeight: 600 }}>
-                                        {v === true ? Icon.check : v === false ? Icon.x : "—"}
-                                        {typeof v === "string" && v.slice(0, 20)}
+                            ) : techChecks.slice(0, 12).map((item) => (
+                                <div key={item.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #f5f3ff", fontSize: 13 }}>
+                                    <span style={{ color: "#4a4868", textTransform: "capitalize" }}>{item.key.replace(/_/g, " ")}</span>
+                                    <span style={{ display: "flex", alignItems: "center", gap: 4, color: item.status === true ? "#16a34a" : item.status === false ? "#dc2626" : "#d97706", fontWeight: 600 }}>
+                                        {item.status === true ? Icon.check : item.status === false ? Icon.x : "—"}
                                     </span>
                                 </div>
                             ))}
@@ -476,7 +494,9 @@ function Audit({ projectId }) {
                                 {result.keyword_density && (
                                     <Card style={{ padding: 16 }}>
                                         <div style={{ fontSize: 11, fontWeight: 600, color: "#b8b4cc", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Keyword Density</div>
-                                        <div style={{ fontSize: 22, fontWeight: 800, color: "#2962ff" }}>{result.keyword_density.percentage || 0}%</div>
+                                        <div style={{ fontSize: 22, fontWeight: 800, color: "#2962ff" }}>
+                                            {result.keyword_density.density || `${result.keyword_density.percentage || 0}%`}
+                                        </div>
                                         <div style={{ fontSize: 11.5, color: "#9896aa", marginTop: 2 }}>{result.keyword_density.recommendation || ""}</div>
                                     </Card>
                                 )}

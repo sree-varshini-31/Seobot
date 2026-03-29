@@ -56,13 +56,13 @@ def get_serp_results(keyword: str, num_results: int = 10):
 
 
 def get_serp_full(keyword: str, num_results: int = 10):
-    """Fetch Google results AND related searches from SerpAPI"""
+    """Fetch Google organic results, related searches, and PAA from SerpAPI (live Google data)."""
 
     api_key = os.getenv("SERPAPI_API_KEY")
 
     if not api_key:
         logger.error("❌ SERPAPI_API_KEY not found in environment")
-        return [], []
+        return [], [], {"error": "SERPAPI_API_KEY not configured", "people_also_ask": [], "search_information": None}
 
     params = {
         "engine": "google",
@@ -94,12 +94,30 @@ def get_serp_full(keyword: str, num_results: int = 10):
         related = data.get("related_searches", [])
         related_keywords = [r.get("query", "") for r in related if r.get("query")]
 
-        logger.info(f"✅ Got {len(results)} results and {len(related_keywords)} related searches for '{keyword}'")
-        return results, related_keywords
+        paa = []
+        for item in data.get("related_questions", []) or []:
+            paa.append({
+                "question": item.get("question"),
+                "snippet": item.get("snippet"),
+                "title": item.get("title"),
+            })
+
+        search_info = data.get("search_information") or {}
+        extras = {
+            "people_also_ask": paa,
+            "search_information": {
+                "total_results": search_info.get("total_results"),
+                "time_taken_displayed": search_info.get("time_taken_displayed"),
+            },
+            "query_displayed": keyword,
+        }
+
+        logger.info(f"✅ Got {len(results)} organic, {len(related_keywords)} related, {len(paa)} PAA for '{keyword}'")
+        return results, related_keywords, extras
 
     except Exception as e:
         logger.error(f"❌ SerpAPI failed: {e}")
-        return [], []
+        return [], [], {"error": str(e), "people_also_ask": [], "search_information": None}
 
 
 def get_competitors(keyword: str, url: str = "", num_results: int = 10):
@@ -147,3 +165,48 @@ def get_search_volume(keyword: str) -> int:
     except Exception as e:
         logger.warning(f"⚠️ Search volume fetch failed for '{keyword}': {e}")
         return 0
+
+
+def compute_serp_fingerprint(url: str) -> str:
+    """
+    Hash of brand-query organic positions + related searches from SerpAPI.
+    Used to detect when Google SERPs change so we can refresh cached audits hourly.
+    """
+    import hashlib
+    from urllib.parse import urlparse
+
+    def _norm_domain(u: str) -> str:
+        try:
+            return urlparse(u or "").netloc.lower().replace("www.", "")
+        except Exception:
+            return ""
+
+    api_key = os.getenv("SERPAPI_API_KEY")
+    if not api_key:
+        return ""
+
+    your_domain = _norm_domain(url)
+    if not your_domain:
+        return ""
+
+    brand = your_domain.split(".")[0]
+    brand_results, brand_related, _ = get_serp_full(brand, num_results=10)
+    brand_results = brand_results or []
+    parts = []
+    for item in brand_results[:10]:
+        pos = item.get("position")
+        link = item.get("url") or ""
+        parts.append(f"{pos}:{_norm_domain(link)}")
+    rel = ",".join((brand_related or [])[:6])
+    raw = "|".join(parts) + "||" + rel
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def serp_data_changed(stored_fingerprint: str, url: str) -> bool:
+    """True if live SERP fingerprint differs from stored (or stored empty)."""
+    if not stored_fingerprint:
+        return True
+    current = compute_serp_fingerprint(url)
+    if not current:
+        return False
+    return current != stored_fingerprint

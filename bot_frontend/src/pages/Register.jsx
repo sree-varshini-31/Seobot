@@ -30,9 +30,10 @@ export default function Register() {
                 method: 'POST', 
                 body: { username: formData.username, password: formData.password } 
             });
-            if (data.access) {
-                login(data.access);
-            }
+            const access = data?.tokens?.access;
+            const refresh = data?.tokens?.refresh;
+            const userData = data?.user;
+            if (access) login({ access, refresh, user: userData });
         } catch (err) {
             const errorMsg = typeof err === 'object' ? Object.values(err).join(' ') : 'Registration failed.';
             setError(errorMsg);
