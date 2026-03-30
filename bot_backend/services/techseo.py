@@ -1,9 +1,9 @@
+import os
 import requests
 import certifi
 import re
-import math
 import logging
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,6 @@ def check_ssl(url: str) -> dict:
             r = requests.head(url, timeout=8, verify=certifi.where(), allow_redirects=True)
             return {"https": True, "valid_cert": True, "status_code": r.status_code}
         else:
-            # Try https version
             https_url = url.replace("http://", "https://")
             r = requests.head(https_url, timeout=8, verify=certifi.where(), allow_redirects=True)
             return {"https": False, "redirects_to_https": r.status_code < 400, "status_code": r.status_code}
@@ -74,36 +73,65 @@ def check_sitemap(url: str) -> dict:
 
 
 def check_page_speed(url: str) -> dict:
-    """Call Google PageSpeed Insights API (free, no key needed for basic use)."""
-    try:
-        api_url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-        params = {"url": url, "strategy": "mobile", "category": ["performance", "seo", "accessibility"]}
-        r = requests.get(api_url, params=params, timeout=30)
-        if r.status_code != 200:
-            return {"error": f"PageSpeed API returned {r.status_code}"}
+    """Call Google PageSpeed Insights API.
+    Tries mobile first, falls back to desktop for JS-heavy SPAs (NO_FCP error).
+    """
+    api_key = os.getenv("PAGESPEED_API_KEY")
+    api_url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 
+    def _fetch(strategy: str):
+        params = [
+            ("url", url),
+            ("strategy", strategy),
+            ("category", "performance"),
+            ("category", "seo"),
+            ("category", "accessibility"),
+        ]
+        if api_key:
+            params.append(("key", api_key))
+        return requests.get(api_url, params=params, timeout=30)
+
+    def _parse(r) -> dict:
         data = r.json()
+        err_msg = (data.get("error") or {}).get("message", "")
+        if err_msg:
+            return {"error": err_msg}
         cats = data.get("lighthouseResult", {}).get("categories", {})
         audits = data.get("lighthouseResult", {}).get("audits", {})
-
-        # Core Web Vitals
-        lcp = audits.get("largest-contentful-paint", {}).get("displayValue", "N/A")
-        fid = audits.get("total-blocking-time", {}).get("displayValue", "N/A")
-        cls = audits.get("cumulative-layout-shift", {}).get("displayValue", "N/A")
-        speed_index = audits.get("speed-index", {}).get("displayValue", "N/A")
-
         return {
             "performance_score": round((cats.get("performance", {}).get("score", 0) or 0) * 100),
             "seo_score": round((cats.get("seo", {}).get("score", 0) or 0) * 100),
             "accessibility_score": round((cats.get("accessibility", {}).get("score", 0) or 0) * 100),
             "core_web_vitals": {
-                "lcp": lcp,
-                "total_blocking_time": fid,
-                "cls": cls,
-                "speed_index": speed_index,
+                "lcp": audits.get("largest-contentful-paint", {}).get("displayValue", "N/A"),
+                "total_blocking_time": audits.get("total-blocking-time", {}).get("displayValue", "N/A"),
+                "cls": audits.get("cumulative-layout-shift", {}).get("displayValue", "N/A"),
+                "speed_index": audits.get("speed-index", {}).get("displayValue", "N/A"),
             },
             "mobile_friendly": True,
         }
+
+    try:
+        # Try mobile first
+        r = _fetch("mobile")
+        if r.status_code == 429:
+            return {"error": "PageSpeed API rate limited — add PAGESPEED_API_KEY to .env"}
+        if r.status_code == 200:
+            result = _parse(r)
+            if "error" not in result:
+                return result
+
+        # Fallback to desktop — works better with JS-heavy SPAs (NO_FCP)
+        logger.info(f"Mobile PageSpeed failed for {url} — trying desktop strategy")
+        r = _fetch("desktop")
+        if r.status_code == 200:
+            result = _parse(r)
+            if "error" not in result:
+                result["note"] = "desktop strategy (JS-heavy SPA)"
+                return result
+
+        return {"error": (r.json().get("error") or {}).get("message", f"PageSpeed returned {r.status_code}")}
+
     except Exception as e:
         logger.warning(f"PageSpeed API failed for {url}: {e}")
         return {"error": str(e)}
@@ -205,10 +233,7 @@ def check_technical_seo(html_data: dict, url: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def flesch_reading_ease(text: str) -> float:
-    """
-    Calculate Flesch Reading Ease score.
-    90-100 = Very Easy, 60-70 = Standard, 30-50 = Difficult, 0-30 = Very Difficult
-    """
+    """Flesch Reading Ease score. 90-100=Very Easy, 60-70=Standard, 0-30=Very Difficult."""
     sentences = re.split(r"[.!?]+", text)
     sentences = [s.strip() for s in sentences if s.strip()]
     words = re.findall(r"\b\w+\b", text)
@@ -257,12 +282,9 @@ def keyword_density(text: str, keyword: str) -> dict:
     total_words = len(words)
     keyword_lower = keyword.lower()
 
-    # Count exact phrase matches
     count = len(re.findall(re.escape(keyword_lower), text.lower()))
-
     density = round((count / total_words * 100), 2) if total_words > 0 else 0
 
-    # Keyword placement checks
     first_100_words = " ".join(words[:100])
     in_first_paragraph = keyword_lower in first_100_words
 

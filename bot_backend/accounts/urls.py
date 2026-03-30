@@ -16,5 +16,6 @@ urlpatterns = [
     # ── Admin (admin login required) ─────────
     path("admin/profile/", views.admin_profile),  # GET — admin profile + overview
     path("admin/users/", views.admin_users),       # GET — all users data
+    path("admin/users/<int:user_id>/", views.admin_user_detail),  # PATCH, DELETE
     path("admin/stats/", views.admin_stats),       # GET — platform statistics
 ]

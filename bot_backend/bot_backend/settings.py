@@ -11,13 +11,13 @@ if not _env_path.exists():
 load_dotenv(dotenv_path=_env_path)
 
 # ─── Security ────────────────────────────────────────────────────────────────
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    '-RxvipwBzaqML8BTmP2WqvVNqrDpl_2ZSKn8tb9HdfQQ7KM_wRMcK4W1Xu9vDzpm3KM'
-)
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    if os.environ.get('DEBUG', 'True') == 'True':
+        SECRET_KEY = 'dev-only-insecure-key-change-in-production-dotenv'
+    else:
+        raise RuntimeError('SECRET_KEY must be set in .env for production')
 
-# FIX: Default to True for local development
-# In production, set DEBUG=False in your .env file
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = [
@@ -32,7 +32,6 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    # FIX: whitenoise.runserver_nostatic MUST come before staticfiles
     'whitenoise.runserver_nostatic',
     'django.contrib.staticfiles',
     'rest_framework',
@@ -48,10 +47,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',          # ← MUST be first
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    # FIX: CorsMiddleware must be as high as possible, before CommonMiddleware
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -114,14 +112,13 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # ─── CORS ────────────────────────────────────────────────────────────────────
-# Vite dev server runs on 5173 — this must match exactly
 CORS_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.environ.get(
-        'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173'
-    ).split(',')
-    if o.strip()
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -156,10 +153,10 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '30/day',
-        'user': '1000/day',
-        'login': '5/minute',
-        'register': '10/hour',
+        'anon':     '200/day',
+        'user':     '1000/day',
+        'login':    '20/minute',
+        'register': '20/hour',
     },
 }
 

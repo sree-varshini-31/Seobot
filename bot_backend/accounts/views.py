@@ -429,3 +429,56 @@ def admin_stats(request):
             "top_users_by_projects": list(top_users),
         }
     })
+
+
+@api_view(["PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def admin_user_detail(request, user_id):
+    """Admin only — update or delete a specific user."""
+    err = _admin_required(request)
+    if err:
+        return err
+
+    try:
+        target_user = User.objects.get(id=user_id)
+        if target_user.is_superuser and not request.user.is_superuser:
+            return Response({"success": False, "error": "Cannot modify superuser"}, status=403)
+    except User.DoesNotExist:
+        return Response({"success": False, "error": "User not found"}, status=404)
+
+    if request.method == "DELETE":
+        if target_user.id == request.user.id:
+            return Response({"success": False, "error": "Cannot delete yourself"}, status=400)
+        target_user.delete()
+        return Response({"success": True, "message": "User deleted successfully"})
+
+    if request.method == "PATCH":
+        if "username" in request.data:
+            new_username = (request.data.get("username") or "").strip()
+            if len(new_username) >= 3:
+                if new_username != target_user.username and User.objects.filter(username=new_username).exists():
+                    return Response({"success": False, "error": "Username already taken"}, status=400)
+                target_user.username = new_username
+
+        if "email" in request.data:
+            new_email = (request.data.get("email") or "").strip().lower()
+            if new_email and new_email != target_user.email:
+                if User.objects.filter(email=new_email).exists():
+                    return Response({"success": False, "error": "Email already in use"}, status=400)
+                target_user.email = new_email
+
+        if "is_active" in request.data:
+            val = request.data.get("is_active")
+            target_user.is_active = str(val).lower() in ("true", "1", "yes")
+
+        target_user.save()
+        return Response({
+            "success": True,
+            "message": "User updated successfully",
+            "user": {
+                "id": target_user.id,
+                "username": target_user.username,
+                "email": target_user.email,
+                "is_active": target_user.is_active
+            }
+        })

@@ -12,7 +12,7 @@ function Skeleton({ className = '' }) {
 }
 
 // ─── Stat card ───────────────────────────────────────────────────────────────
-function StatCard({ icon, label, value, trend, loading }) {
+function StatCard({ icon, label, value, trend, loading, onClick }) {
     const isPositive = typeof trend === 'number' ? trend >= 0 : null;
     const trendLabel =
         trend === null || trend === undefined
@@ -22,7 +22,9 @@ function StatCard({ icon, label, value, trend, loading }) {
                 : trend;
 
     return (
-        <div className="bg-surface-container-lowest ghost-border p-6 rounded-[14px] flex flex-col gap-4">
+        <div 
+            onClick={onClick}
+            className={`bg-surface-container-lowest ghost-border p-6 rounded-[14px] flex flex-col gap-4 ${onClick ? 'cursor-pointer hover:bg-surface-container-low transition-colors' : ''}`}>
             <div className="flex justify-between items-start">
                 <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center text-primary">
                     <span className="material-symbols-outlined">{icon}</span>
@@ -128,7 +130,6 @@ export default function Dashboard() {
         audits: null,
     });
     const [projects, setProjects] = useState([]);
-    const [systemHealth, setSystemHealth] = useState(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -172,18 +173,7 @@ export default function Dashboard() {
                     (p) => p.last_analyzed_at != null
                 ).length;
 
-                // ── System Health — avg SEO score ─────────────────────────
-                const avgScore =
-                    projectsList.length > 0
-                        ? Math.round(
-                            projectsList.reduce(
-                                (acc, p) => acc + (p.latest_score ?? p.seo_score ?? 0),
-                                0
-                            ) / projectsList.length
-                        )
-                        : 92; // fallback
-
-                setSystemHealth(avgScore);
+                // Remove avgScore and systemHealth
                 setTrends({
                     projects: null,
                     articles: null,
@@ -216,13 +206,11 @@ export default function Dashboard() {
     }).format(new Date());
 
     const statCards = [
-        { key: 'projects', icon: 'folder', label: 'Projects' },
-        { key: 'articles', icon: 'article', label: 'Articles' },
-        { key: 'keywords', icon: 'key', label: 'Keywords' },
-        { key: 'audits', icon: 'search_check', label: 'Audits' },
+        { key: 'projects', icon: 'folder', label: 'Projects', navigateTo: '/profile' },
+        { key: 'articles', icon: 'article', label: 'Articles', navigateTo: '/articles' },
+        { key: 'keywords', icon: 'key', label: 'Keywords', navigateTo: '/keywords' },
+        { key: 'audits', icon: 'search_check', label: 'Audits', navigateTo: '/audit' },
     ];
-
-    const healthPct = systemHealth ?? 0;
 
     return (
         <div className="p-10 max-w-7xl mx-auto w-full space-y-10">
@@ -251,7 +239,7 @@ export default function Dashboard() {
 
             {/* ── Stats Grid ───────────────────────────────────────────── */}
             <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {statCards.map(({ key, icon, label }) => (
+                {statCards.map(({ key, icon, label, navigateTo }) => (
                     <StatCard
                         key={key}
                         icon={icon}
@@ -259,6 +247,7 @@ export default function Dashboard() {
                         value={stats[key]}
                         trend={trends[key]}
                         loading={loading}
+                        onClick={() => navigate(navigateTo)}
                     />
                 ))}
             </section>
@@ -326,32 +315,6 @@ export default function Dashboard() {
                                 <span className="font-bold text-on-surface">{label}</span>
                             </button>
                         ))}
-                    </div>
-
-                    {/* Dynamic System Health */}
-                    <div className="mt-auto p-4 bg-primary-fixed/30 rounded-xl border border-primary/10">
-                        <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-bold text-primary uppercase tracking-wider">
-                                System Health
-                            </p>
-                            {loading ? (
-                                <Skeleton className="w-8 h-4" />
-                            ) : (
-                                <span className="text-xs font-bold text-primary">{healthPct}%</span>
-                            )}
-                        </div>
-                        {loading ? (
-                            <Skeleton className="h-1.5 w-full rounded-full" />
-                        ) : (
-                            <div className="flex items-center gap-3">
-                                <div className="flex-1 h-1.5 bg-surface-container rounded-full overflow-hidden">
-                                    <div
-                                        className="h-full bg-primary transition-all duration-700"
-                                        style={{ width: `${healthPct}%` }}
-                                    />
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
             </section>

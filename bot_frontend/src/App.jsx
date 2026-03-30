@@ -11,21 +11,36 @@ import Dashboard from './pages/Dashboard';
 import Audit from './pages/Audit';
 import KeywordsReal from './pages/KeywordsReal';
 import ArticlesReal from './pages/ArticlesReal';
+import InternalLinksReal from './pages/InternalLinksReal';
+import ToolsReal from './pages/ToolsReal';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import Admin from './pages/Admin';
 
-// Protect private routes
-const PrivateRoute = ({ children }) => {
+// ── Route guards ──────────────────────────────────────────────────────────────
+
+function PrivateRoute({ children }) {
     const { token } = useAuth();
-    if (!token) {
-        return <Navigate to="/login" replace />;
-    }
-    return children;
-};
+    return token ? children : <Navigate to="/login" replace />;
+}
 
-const AppLayout = () => {
+function AdminRoute({ children }) {
+    const { token, user } = useAuth();
+    if (!token) return <Navigate to="/login" replace />;
+    if (!user) return null; // still loading
+    const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
+    return isAdmin ? children : <Navigate to="/dashboard" replace />;
+}
+
+function PublicRoute({ children }) {
+    const { token } = useAuth();
+    return token ? <Navigate to="/dashboard" replace /> : children;
+}
+
+// ── App layout ────────────────────────────────────────────────────────────────
+
+function AppLayout() {
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
     return (
         <div className="bg-surface text-on-surface min-h-screen flex selection:bg-primary-fixed selection:text-primary">
             <Sidebar mobileOpen={mobileNavOpen} onNavigate={() => setMobileNavOpen(false)} />
@@ -37,7 +52,9 @@ const AppLayout = () => {
             </main>
         </div>
     );
-};
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
     return (
@@ -45,23 +62,26 @@ export default function App() {
             <AuthProvider>
                 <ProjectProvider>
                     <Routes>
-                        <Route path="/login" element={<Login />} />
-                        <Route path="/register" element={<Register />} />
-                        
-                        {/* Protected Application Routes */}
+                        {/* Public */}
+                        <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+                        <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+
+                        {/* Protected */}
                         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
                             <Route index element={<Navigate to="/dashboard" replace />} />
                             <Route path="dashboard" element={<Dashboard />} />
                             <Route path="audit" element={<Audit />} />
                             <Route path="keywords" element={<KeywordsReal />} />
                             <Route path="articles" element={<ArticlesReal />} />
+                            {/* <Route path="links" element={<InternalLinksReal />} /> */}
+                            {/* <Route path="tools" element={<ToolsReal />} /> */}
                             <Route path="profile" element={<Profile />} />
                             <Route path="settings" element={<Settings />} />
-                            <Route path="links" element={<Navigate to="/dashboard" replace />} />
-                            <Route path="plan" element={<Navigate to="/dashboard" replace />} />
-                            <Route path="tools" element={<Navigate to="/dashboard" replace />} />
-                            <Route path="projects" element={<Navigate to="/dashboard" replace />} />
+                            <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
                         </Route>
+
+                        {/* Catch-all */}
+                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
                     </Routes>
                 </ProjectProvider>
             </AuthProvider>

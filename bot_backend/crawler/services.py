@@ -1,9 +1,6 @@
-import requests  # type: ignore
-import certifi  # type: ignore
 from bs4 import BeautifulSoup  # type: ignore
 import logging
 from urllib.parse import urlparse
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +15,19 @@ def _parse_html(html: str, url: str) -> dict:
         tag.decompose()
 
     title = soup.title.string.strip() if soup.title and soup.title.string else ""
+
+    # 🔥 Detect Anti-Bot / Cloudflare Captcha pages
+    lower_title = title.lower()
+    text_check = soup.get_text().lower()
+    if (
+        "just a moment" in lower_title or 
+        "attention required" in lower_title or
+        "access denied" in lower_title or
+        "verify you are a human" in text_check or
+        "cf-browser-verification" in text_check or
+        "tripadvisor" in lower_title and len(soup.find_all("p")) == 0
+    ):
+        return {"error": "Website is protected by anti-bot systems (e.g., Cloudflare) and is blocking our automated audit tool. Try another URL."}
 
     meta_desc = ""
     desc = soup.find("meta", attrs={"name": "description"})
@@ -60,115 +70,85 @@ def _parse_html(html: str, url: str) -> dict:
     }
 
 
-async def _async_playwright_crawl(url: str) -> str:
-    """Async Playwright crawl — scrolls entire page to trigger lazy loading"""
-    from playwright.async_api import async_playwright
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--disable-dev-shm-usage",
-            ]
-        )
-
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-            locale="en-US",
-        )
-
-        page = await context.new_page()
-
-        # Hide webdriver flag
-        await page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
-
-        # Load page
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-
-        # Scroll entire page to trigger ALL lazy-loaded content
-        await page.evaluate("""
-            async () => {
-                const totalHeight = document.body.scrollHeight;
-                const step = 300;
-                let currentPos = 0;
-                while (currentPos < totalHeight) {
-                    window.scrollTo(0, currentPos);
-                    await new Promise(r => setTimeout(r, 100));
-                    currentPos += step;
-                }
-                window.scrollTo(0, 0);
-            }
-        """)
-
-        await page.wait_for_timeout(2000)
-        html = await page.content()
-        await browser.close()
-        return html
-
-
 def _crawl_with_playwright(url: str) -> dict:
-    """Crawl using Playwright with proper async handling"""
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        html = loop.run_until_complete(_async_playwright_crawl(url))
-        loop.close()
-
-        result = _parse_html(html, url)
-
-        if not result.get("title") and not result.get("content"):
-            logger.warning(f"⚠️ Playwright got empty content for {url}")
-            return None
-
-        logger.info(
-            f"✅ Playwright crawled {url} — "
-            f"{result.get('word_count', 0)} words, "
-            f"{len(result.get('internal_links', []))} internal links"
-        )
-        return result
-
-    except Exception as e:
-        logger.warning(f"⚠️ Playwright failed for {url}: {e} — falling back to requests")
-        return None
-
-
-def _crawl_with_requests(url: str) -> dict:
-    """Crawl using requests — fast but misses JavaScript content"""
-    headers = {"User-Agent": "Mozilla/5.0"}
+    """Crawl using sync Playwright to guarantee JavaScript execution"""
+    import asyncio
+    from playwright.sync_api import sync_playwright
+    import time
 
     try:
-        response = requests.get(url, headers=headers, timeout=10, verify=certifi.where())
-        response.raise_for_status()
-        logger.info(f"✅ requests crawled {url}")
-        return _parse_html(response.text, url)
-
-    except requests.exceptions.SSLError:
         try:
-            response = requests.get(url, headers=headers, timeout=10, verify=False)
-            response.raise_for_status()
-            return _parse_html(response.text, url)
-        except Exception as e:
-            return {"error": f"Failed to crawl URL: {e}"}
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--disable-dev-shm-usage",
+                ]
+            )
+
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+                locale="en-US",
+            )
+
+            page = context.new_page()
+
+            # Hide webdriver flag
+            page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+
+            # Load page
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+            # Scroll entire page to trigger ALL lazy-loaded content
+            page.evaluate("""
+                () => {
+                    const totalHeight = document.body.scrollHeight;
+                    const step = 300;
+                    let currentPos = 0;
+                    while (currentPos < totalHeight) {
+                        window.scrollTo(0, currentPos);
+                        currentPos += step;
+                    }
+                    window.scrollTo(0, 0);
+                }
+            """)
+
+            time.sleep(2)
+            html = page.content()
+            browser.close()
+
+            result = _parse_html(html, url)
+
+            if not result or (not result.get("title") and not result.get("content") and not result.get("error")):
+                logger.warning(f"⚠️ Playwright got empty content for {url}")
+                return {"error": "Failed to extract content from the website using Javascript rendering."}
+
+            logger.info(
+                f"✅ Playwright crawled {url} — "
+                f"{result.get('word_count', 0)} words, "
+                f"{len(result.get('internal_links', []))} internal links"
+            )
+            return result
 
     except Exception as e:
-        return {"error": f"Failed to crawl URL: {e}"}
+        logger.warning(f"⚠️ Playwright failed for {url}: {e}")
+        return {"error": f"Scraping Engine failed to loaded Javascript: {e}"}
 
 
 def crawl_website(url: str) -> dict:
     """
-    Crawl website using Playwright (full JS rendering + full page scroll)
-    with automatic fallback to requests if Playwright fails.
+    Crawl website using Playwright (full JS rendering + full page scroll).
+    Requests fallback removed to enforce JavaScript execution for accurate SEO metrics.
     """
-    result = _crawl_with_playwright(url)
-
-    if result is None:
-        logger.info(f"🔄 Falling back to requests for {url}")
-        result = _crawl_with_requests(url)
-
-    return result
+    return _crawl_with_playwright(url)

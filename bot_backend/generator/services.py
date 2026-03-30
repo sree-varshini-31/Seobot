@@ -13,9 +13,9 @@ from serp.services import get_competitors
 from keywords.services import extract_keywords
 
 
-def _make_ai_client():
-    """Return (client, model) using Groq."""
-    groq_key = os.environ.get("GROQ_API_KEY")
+def _get_ai_client():
+    from django.conf import settings
+    groq_key = getattr(settings, "GROQ_API_KEY", None) or os.environ.get("GROQ_API_KEY")
     if groq_key:
         try:
             from openai import OpenAI
@@ -60,7 +60,7 @@ class ContentGenerator:
     """Main content generation service"""
 
     def __init__(self):
-        self.client, self.model = _make_ai_client()
+        pass
 
     # ─────────────────────────────────────────────────────────────────
     # CONTENT PLAN
@@ -68,7 +68,8 @@ class ContentGenerator:
 
     def generate_content_plan(self, project: Project) -> ContentPlan:
         """Generate a 12-month content plan using real project keywords."""
-        if not self.client:
+        client, model = _get_ai_client()
+        if not client:
             raise ValueError("No AI API key configured — set GROQ_API_KEY in .env")
 
         # Use real keywords from DB if available, else placeholder
@@ -107,7 +108,7 @@ Include all 12 months. Each month should have 3-4 article ideas.
 Return ONLY the JSON, no explanation."""
 
         try:
-            raw = _call_groq(self.client, self.model, prompt, max_tokens=2000, temperature=0.7)
+            raw = _call_groq(client, model, prompt, max_tokens=2000, temperature=0.7)
             plan_data = _parse_json(raw)
             return ContentPlan.objects.create(
                 project=project,
@@ -187,7 +188,8 @@ Return ONLY the JSON, no explanation."""
 
     def _generate_blog_article(self, keyword: str, template_type: str, project: Project) -> Dict:
         """Generate a full long-form article in 2 Groq calls."""
-        if not self.client:
+        client, model = _get_ai_client()
+        if not client:
             raise ValueError("No AI API key configured — set GROQ_API_KEY in .env")
 
         domain = urlparse(project.url).netloc.replace("www.", "")
@@ -218,7 +220,7 @@ Return ONLY a JSON object:
 Include 6-8 sections. Always end with an FAQ section with 4-5 questions.
 Return ONLY the JSON."""
 
-        outline_raw = _call_groq(self.client, self.model, outline_prompt, max_tokens=1000, temperature=0.4)
+        outline_raw = _call_groq(client, model, outline_prompt, max_tokens=1000, temperature=0.4)
         outline = _parse_json(outline_raw)
 
         time.sleep(1)  # avoid rate limit between calls
@@ -267,12 +269,13 @@ Return ONLY a JSON object:
 }}
 Return ONLY the JSON, no explanation."""
 
-        content_raw = _call_groq(self.client, self.model, content_prompt, max_tokens=3000, temperature=0.7)
+        content_raw = _call_groq(client, model, content_prompt, max_tokens=3000, temperature=0.7)
         return _parse_json(content_raw)
 
     def _generate_youtube_article(self, keyword: str, youtube_url: str) -> Dict:
         """Generate article from YouTube video transcript."""
-        if not self.client:
+        client, model = _get_ai_client()
+        if not client:
             raise ValueError("No AI API key configured — set GROQ_API_KEY in .env")
 
         video_id = self._extract_youtube_id(youtube_url)
@@ -313,7 +316,7 @@ Return ONLY a JSON object:
 }}
 Return ONLY JSON."""
 
-        raw = _call_groq(self.client, self.model, prompt, max_tokens=3000, temperature=0.7)
+        raw = _call_groq(client, model, prompt, max_tokens=3000, temperature=0.7)
         data = _parse_json(raw)
         data["youtube_url"] = youtube_url
         return data
@@ -324,7 +327,8 @@ Return ONLY JSON."""
 
     def generate_internal_linking(self, project: Project) -> List[Dict]:
         """Analyze all articles in project and suggest internal links between them."""
-        if not self.client:
+        client, model = _get_ai_client()
+        if not client:
             raise ValueError("No AI API key configured — set GROQ_API_KEY in .env")
 
         articles = Article.objects.filter(
@@ -374,7 +378,7 @@ Return ONLY a JSON array:
 Return ONLY the JSON array."""
 
         try:
-            raw = _call_groq(self.client, self.model, prompt, max_tokens=1500, temperature=0.3)
+            raw = _call_groq(client, model, prompt, max_tokens=1500, temperature=0.3)
             suggestions = json.loads(re.sub(r"```(?:json)?|```", "", raw).strip())
 
             # Save suggestions to Article.internal_links field
@@ -396,7 +400,8 @@ Return ONLY the JSON array."""
 
     def optimize_content(self, content: str, keyword: str) -> Dict:
         """Optimize existing content for SEO."""
-        if not self.client:
+        client, model = _get_ai_client()
+        if not client:
             raise ValueError("No AI API key configured — set GROQ_API_KEY in .env")
 
         prompt = f"""Analyze and optimize this content for the keyword "{keyword}".
@@ -425,7 +430,7 @@ Return ONLY a JSON object:
 }}
 Return ONLY JSON."""
 
-        raw = _call_groq(self.client, self.model, prompt, max_tokens=800, temperature=0.3)
+        raw = _call_groq(client, model, prompt, max_tokens=800, temperature=0.3)
         return _parse_json(raw)
 
     def generate_image(self, keyword: str, style: str = "professional") -> str:

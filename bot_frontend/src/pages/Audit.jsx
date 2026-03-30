@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { analyzeUrl } from '../api/client';
+import { auditWebsite } from '../api/client';
 
 function ScoreRing({ score = 0 }) {
     const pct = Math.min(100, Math.max(0, score || 0));
@@ -38,7 +38,7 @@ function StatusRow({ label, status }) {
     const passed = status === true;
     const pillClass = passed
         ? 'bg-[#e6f4ea] text-[#137333] border-[#ceead6]'
-        : 'bg-[#fef7e0] text-[#b06000] border-[#fde293]';
+        : 'bg-[#fef7e0] text-[#b06000] border-[#fdd663]';
     const icon = passed ? 'check_circle' : 'warning';
     const labelText = passed ? 'Passed' : 'Needs attention';
 
@@ -92,17 +92,14 @@ export default function Audit() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
-    const [meta, setMeta] = useState(null);
+    const [lastAnalyzed, setLastAnalyzed] = useState(null);
 
-    const techChecks = useMemo(() => {
-        return toTechCheckStatus(result?.technical_seo);
-    }, [result]);
+    const techChecks = useMemo(() => toTechCheckStatus(result?.technical_seo), [result]);
 
     const health = useMemo(() => {
         const total = techChecks.length;
         const passed = techChecks.filter((t) => t.status === true).length;
-        const needsWork = total - passed;
-        return { total, passed, needsWork };
+        return { total, passed, needsWork: total - passed };
     }, [techChecks]);
 
     const handleAnalyze = async (e) => {
@@ -112,17 +109,15 @@ export default function Audit() {
         setLoading(true);
         setError(null);
         setResult(null);
-        setMeta(null);
+        setLastAnalyzed(null);
 
         try {
-            const payload = await analyzeUrl(url);
-            setMeta({
-                lastAnalyzed: payload?.last_analyzed_at,
-                nextRefresh: payload?.next_refresh_after,
-            });
-            setResult(payload?.data || payload);
+            // auditWebsite hits /audit/website/ — the correct endpoint
+            const data = await auditWebsite(url);
+            setResult(data);
+            setLastAnalyzed(new Date().toLocaleString());
         } catch (err) {
-            setError(err?.detail || err?.message || 'Failed to analyze URL');
+            setError(err?.error || err?.detail || err?.message || 'Failed to analyze URL');
         } finally {
             setLoading(false);
         }
@@ -170,9 +165,9 @@ export default function Audit() {
                 </div>
             )}
 
-            {result && meta?.lastAnalyzed && (
+            {result && lastAnalyzed && (
                 <p className="text-xs sm:text-sm text-on-surface-variant">
-                    Last analyzed: {new Date(meta.lastAnalyzed).toLocaleString()}
+                    Last analyzed: {lastAnalyzed}
                 </p>
             )}
 
@@ -190,6 +185,8 @@ export default function Audit() {
 
             {result && (
                 <section className="space-y-6 sm:space-y-8">
+
+                    {/* Missing / Weak elements */}
                     {Array.isArray(result.missing_on_page) && result.missing_on_page.length > 0 && (
                         <div className="bg-[#fef7e0] border border-[#fdd663] rounded-2xl p-5 sm:p-6">
                             <div className="text-[11px] font-extrabold uppercase tracking-widest text-[#b06000] mb-3">Missing or weak on your page</div>
@@ -204,6 +201,7 @@ export default function Audit() {
                         </div>
                     )}
 
+                    {/* Live SERP */}
                     {result.serp_snapshot?.organic_results?.length > 0 && (
                         <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-5 sm:p-8 overflow-x-auto">
                             <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-4">Live Google SERP (SerpAPI)</div>
@@ -241,6 +239,7 @@ export default function Audit() {
                         </div>
                     )}
 
+                    {/* Score + Technical audit */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
                         <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-8 shadow-sm">
                             <div className="flex items-center justify-between gap-4 mb-5">
@@ -252,17 +251,21 @@ export default function Audit() {
                                 <ScoreRing score={result.seo_score} />
                             </div>
 
-                            <div className="mt-6">
-                                <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-3">
-                                    Issues Found
+                            {/* Google rank */}
+                            {result.your_google_rank !== undefined && (
+                                <div className="mb-4 px-4 py-3 bg-[#e8f0fe] border border-[#c5d8fd] rounded-xl">
+                                    <div className="text-[11px] font-extrabold uppercase tracking-widest text-[#174ea6]">Your Google Rank</div>
+                                    <div className="text-[18px] font-extrabold text-[#174ea6] mt-1">{result.your_google_rank}</div>
                                 </div>
+                            )}
+
+                            <div className="mt-2">
+                                <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-3">Issues Found</div>
                                 {Array.isArray(result.issues) && result.issues.length > 0 ? (
                                     <div className="space-y-2">
                                         {result.issues.slice(0, 6).map((issue, i) => (
                                             <div key={i} className="flex items-start gap-2 text-[13px] font-semibold text-[#c5221f]">
-                                                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                                    info
-                                                </span>
+                                                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
                                                 <span className="leading-relaxed">{issue}</span>
                                             </div>
                                         ))}
@@ -294,7 +297,6 @@ export default function Audit() {
                                         </div>
                                     </div>
                                 </div>
-
                                 <div className="mt-4">
                                     {techChecks.map((t) => (
                                         <StatusRow key={t.label} label={t.label} status={t.status} />
@@ -302,32 +304,33 @@ export default function Audit() {
                                 </div>
                             </div>
 
+                            {/* Core Web Vitals + Readability */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="bg-surface-container-lowest border border-[#eeedf5] rounded-[24px] p-8">
                                     <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-4">Core Web Vitals</div>
                                     <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-bold text-on-surface-variant">LCP</span>
-                                            <span className="text-sm font-bold text-on-surface">{result.pagespeed?.core_web_vitals?.lcp || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-bold text-on-surface-variant">TBT</span>
-                                            <span className="text-sm font-bold text-on-surface">{result.pagespeed?.core_web_vitals?.total_blocking_time || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-bold text-on-surface-variant">CLS</span>
-                                            <span className="text-sm font-bold text-on-surface">{result.pagespeed?.core_web_vitals?.cls || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-bold text-on-surface-variant">Speed Index</span>
-                                            <span className="text-sm font-bold text-on-surface">{result.pagespeed?.core_web_vitals?.speed_index || 'N/A'}</span>
-                                        </div>
+                                        {[
+                                            { label: 'LCP', value: result.pagespeed?.core_web_vitals?.lcp },
+                                            { label: 'TBT', value: result.pagespeed?.core_web_vitals?.total_blocking_time },
+                                            { label: 'CLS', value: result.pagespeed?.core_web_vitals?.cls },
+                                            { label: 'Speed Index', value: result.pagespeed?.core_web_vitals?.speed_index },
+                                        ].map(({ label, value }) => (
+                                            <div key={label} className="flex items-center justify-between">
+                                                <span className="text-sm font-bold text-on-surface-variant">{label}</span>
+                                                <span className="text-sm font-bold text-on-surface">{value ?? 'N/A'}</span>
+                                            </div>
+                                        ))}
                                     </div>
-
                                     <div className="mt-6 pt-4 border-t border-[#eeedf5]">
                                         <div className="flex items-center justify-between">
                                             <span className="text-sm font-bold text-on-surface-variant">Mobile Friendly</span>
-                                            <span className="text-sm font-bold text-on-surface">{result.pagespeed?.mobile_friendly === true ? 'Yes' : result.pagespeed?.mobile_friendly === false ? 'No' : 'N/A'}</span>
+                                            <span className="text-sm font-bold text-on-surface">
+                                                {result.pagespeed?.mobile_friendly === true
+                                                    ? 'Yes'
+                                                    : result.pagespeed?.mobile_friendly === false
+                                                        ? 'No'
+                                                        : 'N/A'}
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
@@ -337,17 +340,15 @@ export default function Audit() {
                                     <div className="space-y-4">
                                         <div>
                                             <div className="text-sm font-bold text-on-surface-variant mb-1">Readability</div>
-                                            <div className="text-[22px] font-extrabold text-on-surface">
-                                                {result.readability?.score ?? '—'}
-                                            </div>
+                                            <div className="text-[22px] font-extrabold text-on-surface">{result.readability?.score ?? '—'}</div>
                                             <div className="text-sm font-bold text-on-surface-variant">{result.readability?.label || ''}</div>
+                                            {result.readability?.recommendation && (
+                                                <div className="text-xs text-on-surface-variant mt-1">{result.readability.recommendation}</div>
+                                            )}
                                         </div>
-
                                         <div className="pt-4 border-t border-[#eeedf5]">
                                             <div className="text-sm font-bold text-on-surface-variant mb-1">Keyword Density</div>
-                                            <div className="text-[22px] font-extrabold text-primary">
-                                                {result.keyword_density?.density ?? '—'}
-                                            </div>
+                                            <div className="text-[22px] font-extrabold text-primary">{result.keyword_density?.density ?? '—'}</div>
                                             <div className="text-sm font-bold text-on-surface-variant">{result.keyword_density?.recommendation || ''}</div>
                                         </div>
                                     </div>
@@ -356,15 +357,11 @@ export default function Audit() {
                         </div>
                     </div>
 
+                    {/* AI Suggestions + Backlinks */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         <div className="lg:col-span-2 bg-surface-container-lowest border border-[#eeedf5] rounded-[24px] p-8">
-                            <div className="flex items-center justify-between mb-4 gap-4">
-                                <div>
-                                    <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest">AI Content Suggestions</div>
-                                    <div className="text-base font-extrabold text-on-surface mt-2">What to write next</div>
-                                </div>
-                            </div>
-
+                            <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-1">AI Content Suggestions</div>
+                            <div className="text-base font-extrabold text-on-surface mt-2 mb-5">What to write next</div>
                             <div className="space-y-5">
                                 <div>
                                     <div className="text-sm font-bold text-on-surface-variant mb-2">Title</div>
@@ -398,36 +395,31 @@ export default function Audit() {
                         </div>
                     </div>
 
-                    <div className="bg-surface-container-lowest border border-[#eeedf5] rounded-[24px] p-8">
-                        <div className="flex items-center justify-between mb-6 gap-4">
-                            <div>
-                                <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest">Keyword Opportunities</div>
-                                <div className="text-base font-extrabold text-on-surface mt-2">Actionable next steps</div>
+                    {/* Keyword Opportunities */}
+                    {Array.isArray(result.keyword_opportunities) && result.keyword_opportunities.length > 0 && (
+                        <div className="bg-surface-container-lowest border border-[#eeedf5] rounded-[24px] p-8">
+                            <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-1">Keyword Opportunities</div>
+                            <div className="text-base font-extrabold text-on-surface mt-2 mb-6">Actionable next steps</div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {result.keyword_opportunities.slice(0, 3).map((k, i) => (
+                                    <div key={i} className="bg-[#fcfcff] border border-[#eeedf5] rounded-[18px] p-5">
+                                        <div className="text-[11px] font-extrabold uppercase tracking-widest text-outline">{k.keyword || 'N/A'}</div>
+                                        <div className="text-sm font-extrabold text-on-surface mt-2">
+                                            Position: {k.your_position ?? 'N/A'}
+                                        </div>
+                                        <div className="mt-3">
+                                            <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Suggestion</div>
+                                            <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{k.suggestion || 'N/A'}</div>
+                                        </div>
+                                        <div className="mt-3">
+                                            <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Action</div>
+                                            <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{k.action || 'N/A'}</div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {(result.keyword_opportunities || []).slice(0, 3).map((k, i) => (
-                                <div key={i} className="bg-[#fcfcff] border border-[#eeedf5] rounded-[18px] p-5">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-widest text-outline">{k.keyword || 'N/A'}</div>
-                                    <div className="text-[12px] font-bold text-on-surface-variant mt-2">
-                                        {k.your_site ? `Site: ${k.your_site}` : ''}
-                                    </div>
-                                    <div className="text-sm font-extrabold text-on-surface mt-2">
-                                        Position: {k.your_position ?? 'N/A'}
-                                    </div>
-                                    <div className="mt-3">
-                                        <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Suggestion</div>
-                                        <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{k.suggestion || 'N/A'}</div>
-                                    </div>
-                                    <div className="mt-3">
-                                        <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Action</div>
-                                        <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{k.action || 'N/A'}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                    )}
                 </section>
             )}
         </div>

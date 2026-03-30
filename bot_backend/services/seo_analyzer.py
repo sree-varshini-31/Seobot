@@ -348,34 +348,84 @@ def analyze_website(project_id: int, url: str):
     keywords = extract_keywords(data.get("content", ""))
     your_domain = _normalize_domain(url)
 
-    # 🔹 4. Brand + live Google SERP (SerpAPI)
-    brand_results, brand_related, brand, brand_extras = get_brand_keywords(your_domain)
+    # 🔹 4. Check for Existing Cached SERP Data to Save API Costs
+    cached_serp = None
+    if project_id:
+        from projects.models import Project
+        try:
+            proj = Project.objects.get(id=project_id)
+            if proj.analytics_cache and "serp_snapshot" in proj.analytics_cache:
+                cached_serp = proj.analytics_cache
+        except Exception:
+            pass
 
-    brand_is_relevant = is_brand_search_relevant(brand_results, your_domain)
-
-    if brand_is_relevant:
-        main_keyword = keywords[0] if keywords else (brand_related[0] if brand_related else brand)
-        serp_results = brand_results
-        opportunity_keywords = brand_related[:5]
-        primary_serp_extras = brand_extras or {}
-        related_for_groq = brand_related
+    if cached_serp:
+        your_position = cached_serp.get("your_google_rank")
+        keyword_search_volume = cached_serp.get("keyword_search_volume", {})
+        keyword_opportunities = cached_serp.get("keyword_opportunities", [])
+        backlink_suggestions = cached_serp.get("backlink_suggestions", [])
+        content_suggestions = cached_serp.get("content_suggestions", {})
+        serp_snapshot = cached_serp.get("serp_snapshot", {})
     else:
-        main_keyword = keywords[0] if keywords else brand
-        content_results, content_related, content_extras = get_serp_full(main_keyword, num_results=10)
-        serp_results = content_results or []
-        opportunity_keywords = content_related[:5] if content_related else []
-        primary_serp_extras = content_extras or {}
-        related_for_groq = content_related or []
+        # 🔹 Brand + live Google SERP (SerpAPI)
+        brand_results, brand_related, brand, brand_extras = get_brand_keywords(your_domain)
+        brand_is_relevant = is_brand_search_relevant(brand_results, your_domain)
 
-    paa_list = (primary_serp_extras or {}).get("people_also_ask") or []
+        if brand_is_relevant:
+            main_keyword = keywords[0] if keywords else (brand_related[0] if brand_related else brand)
+            serp_results = brand_results
+            opportunity_keywords = brand_related[:5]
+            primary_serp_extras = brand_extras or {}
+            related_for_groq = brand_related
+        else:
+            main_keyword = keywords[0] if keywords else brand
+            content_results, content_related, content_extras = get_serp_full(main_keyword, num_results=10)
+            serp_results = content_results or []
+            opportunity_keywords = content_related[:5] if content_related else []
+            primary_serp_extras = content_extras or {}
+            related_for_groq = content_related or []
 
-    # 🔹 5. Your position in Google (SerpAPI organic)
-    your_position = None
-    for item in (brand_results + serp_results):
-        result_domain = _normalize_domain(item.get("url", ""))
-        if result_domain == your_domain:
-            your_position = item.get("position")
-            break
+        paa_list = (primary_serp_extras or {}).get("people_also_ask") or []
+
+        your_position = None
+        for item in (brand_results + serp_results):
+            result_domain = _normalize_domain(item.get("url", ""))
+            if result_domain == your_domain:
+                your_position = item.get("position")
+                break
+
+        # SerpAPI trend volumes
+        keyword_search_volume = {}
+        for kw in [main_keyword] + opportunity_keywords[:2]:
+            if kw and kw not in keyword_search_volume:
+                keyword_search_volume[kw] = get_search_volume(kw)
+
+        # Groq
+        content_suggestions = generate_content_suggestions(
+            main_keyword,
+            serp_results,
+            your_domain,
+            related_searches=related_for_groq,
+            people_also_ask=paa_list,
+        )
+        backlink_suggestions = generate_backlink_suggestions(
+            main_keyword,
+            your_domain,
+            serp_results=serp_results,
+            related_searches=related_for_groq,
+        )
+
+        keyword_opportunities = build_keyword_opportunities(your_domain, opportunity_keywords)
+
+        serp_snapshot = {
+            "brand_query": brand,
+            "primary_query": main_keyword,
+            "source": "serpapi_google",
+            "organic_results": serp_results[:10],
+            "related_searches": list(related_for_groq[:12]) if related_for_groq else [],
+            "people_also_ask": paa_list[:8],
+            "search_information": (primary_serp_extras or {}).get("search_information"),
+        }
 
     # 🔹 6. Technical + on-page (crawl) — before Groq so prompts use full picture
     ssl_check = check_ssl(url)
@@ -446,44 +496,10 @@ def analyze_website(project_id: int, url: str):
     }
     missing_on_page = _build_missing_elements(tech_bundle, issues, kw_density)
 
-    # 🔹 7. SerpAPI trend volumes (primary + opportunities — capped for cost)
-    keyword_search_volume = {}
-    for kw in [main_keyword] + opportunity_keywords[:2]:
-        if kw and kw not in keyword_search_volume:
-            keyword_search_volume[kw] = get_search_volume(kw)
-
-    # 🔹 8. Groq — grounded in SerpAPI strings above
-    content_suggestions = generate_content_suggestions(
-        main_keyword,
-        serp_results,
-        your_domain,
-        related_searches=related_for_groq,
-        people_also_ask=paa_list,
-    )
-    backlink_suggestions = generate_backlink_suggestions(
-        main_keyword,
-        your_domain,
-        serp_results=serp_results,
-        related_searches=related_for_groq,
-    )
-
-    # 🔹 9. More SerpAPI calls per related keyword + Groq
-    keyword_opportunities = build_keyword_opportunities(your_domain, opportunity_keywords)
-
     seo_score_trend = [{
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "score": score
     }]
-
-    serp_snapshot = {
-        "brand_query": brand,
-        "primary_query": main_keyword,
-        "source": "serpapi_google",
-        "organic_results": serp_results[:10],
-        "related_searches": list(related_for_groq[:12]) if related_for_groq else [],
-        "people_also_ask": paa_list[:8],
-        "search_information": (primary_serp_extras or {}).get("search_information"),
-    }
 
     return {
         "url": url,
