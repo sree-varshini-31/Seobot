@@ -39,6 +39,14 @@ function AdminRoute({ children }) {
     return isAdmin ? children : <Navigate to="/dashboard" replace />;
 }
 
+function UserRoute({ children }) {
+    const { token, user } = useAuth();
+    if (!token) return <Navigate to="/login" replace />;
+    if (!user) return null; // still loading
+    const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
+    return isAdmin ? <Navigate to="/admin" replace /> : children;
+}
+
 function PublicRoute({ children }) {
     const { token } = useAuth();
     return token ? <Navigate to="/dashboard" replace /> : children;
@@ -76,14 +84,14 @@ export default function App() {
                         {/* Protected */}
                         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
                             <Route index element={<RoleBasedIndex />} />
-                            <Route path="dashboard" element={<Dashboard />} />
-                            <Route path="audit" element={<Audit />} />
-                            <Route path="keywords" element={<KeywordsReal />} />
-                            <Route path="articles" element={<ArticlesReal />} />
+                            <Route path="dashboard" element={<UserRoute><Dashboard /></UserRoute>} />
+                            <Route path="audit" element={<UserRoute><Audit /></UserRoute>} />
+                            <Route path="keywords" element={<UserRoute><KeywordsReal /></UserRoute>} />
+                            <Route path="articles" element={<UserRoute><ArticlesReal /></UserRoute>} />
                             {/* <Route path="links" element={<InternalLinksReal />} /> */}
                             {/* <Route path="tools" element={<ToolsReal />} /> */}
-                            <Route path="profile" element={<Profile />} />
-                            <Route path="settings" element={<Settings />} />
+                            <Route path="profile" element={<UserRoute><Profile /></UserRoute>} />
+                            <Route path="settings" element={<UserRoute><Settings /></UserRoute>} />
                             <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
                         </Route>
 
