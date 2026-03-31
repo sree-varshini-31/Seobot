@@ -1,4 +1,4 @@
-from datetime import datetime
+from django.utils import timezone
 from urllib.parse import urlparse
 import os
 import requests as http_requests
@@ -361,7 +361,6 @@ def analyze_website(project_id: int, url: str):
         # Wait for the HTML crawl (critical path for keywords and on-page SEO)
         data = future_crawl.result()
         if isinstance(data, dict) and data.get("error"):
-            # Cancel remaining tasks conceptually (they'll finish in bg)
             return {"error": data["error"]}
 
         # 🔹 2. SEO Audit & Keyword Extraction (CPU bound, runs after crawl)
@@ -507,8 +506,10 @@ def analyze_website(project_id: int, url: str):
     }
     missing_on_page = _build_missing_elements(tech_bundle, issues, kw_density)
 
+    # FIX: Use timezone.now() instead of datetime.now() to avoid naive datetime
+    # warning when USE_TZ=True is active in Django settings.
     seo_score_trend = [{
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "date": timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
         "score": score
     }]
 

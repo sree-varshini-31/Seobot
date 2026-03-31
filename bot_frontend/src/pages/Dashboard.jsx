@@ -303,33 +303,6 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Quick Actions + System Health */}
-                <div className="bg-surface-container-lowest ghost-border rounded-[14px] p-6 flex flex-col gap-6">
-                    <div>
-                        <h3 className="text-lg font-bold text-on-surface">Quick Actions</h3>
-                        <p className="text-sm text-outline">Launch a specialised SEO task</p>
-                    </div>
-
-                    <div className="space-y-3">
-                        {[
-                            { route: '/audit', icon: 'search_check', label: 'Run SEO Audit' },
-                            { route: '/keywords', icon: 'key', label: 'Research Keywords' },
-                            { route: '/articles', icon: 'edit_note', label: 'Generate Article' },
-                            { route: '/profile', icon: 'history', label: 'Projects History' },
-                        ].map(({ route, icon, label }) => (
-                            <button
-                                key={route}
-                                onClick={() => navigate(route)}
-                                className="w-full flex items-center gap-4 p-4 rounded-xl ghost-border bg-surface hover:border-primary transition-all group"
-                            >
-                                <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors">
-                                    <span className="material-symbols-outlined">{icon}</span>
-                                </div>
-                                <span className="font-bold text-on-surface">{label}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
             </section>
         </div>
     );

@@ -2,10 +2,13 @@ import os
 import re
 import json
 import time
+import logging
 import requests as http_requests
 from typing import Dict, List, Tuple
-from datetime import datetime
+from django.utils import timezone
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 from .models import Article, ContentTemplate, GenerationTask, ContentPlan
 from projects.models import Project
@@ -53,7 +56,25 @@ def _call_groq(client, model, prompt: str, max_tokens: int = 1000, temperature: 
 def _parse_json(text: str) -> dict:
     """Safely parse JSON from Groq response, stripping markdown fences."""
     clean = re.sub(r"```(?:json)?", "", text).replace("```", "").strip()
-    return json.loads(clean)
+    if not clean:
+        raise ValueError("Empty AI response")
+
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError as e:
+        # Common model output issues: unescaped single quotes in strings, raw newlines in values.
+        fallback = clean.replace("\\'", "'")
+        fallback = fallback.replace('\r\n', '\n').replace('\r', '\n')
+        # Convert literal newlines to escaped newlines so JSON parser can handle multiline content values
+        if "\n" in fallback:
+            fallback = fallback.replace('\n', '\\n')
+
+        try:
+            return json.loads(fallback)
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"Invalid JSON response from AI provider: {e}; cleaned fallback failed; raw response: {text!r}"
+            )
 
 
 class ContentGenerator:
@@ -149,7 +170,7 @@ Return ONLY the JSON, no explanation."""
         task = GenerationTask.objects.create(
             article=article,
             status="processing",
-            started_at=datetime.now(),
+            started_at=timezone.now(),  # FIX: was datetime.now() — naive datetime causes 500 when USE_TZ=True
         )
 
         try:
@@ -173,7 +194,7 @@ Return ONLY the JSON, no explanation."""
 
             task.status       = "completed"
             task.progress     = 100
-            task.completed_at = datetime.now()
+            task.completed_at = timezone.now()  # FIX: was datetime.now() — naive datetime causes 500 when USE_TZ=True
             task.save()
 
         except Exception as e:
@@ -221,7 +242,22 @@ Include 6-8 sections. Always end with an FAQ section with 4-5 questions.
 Return ONLY the JSON."""
 
         outline_raw = _call_groq(client, model, outline_prompt, max_tokens=1000, temperature=0.4)
-        outline = _parse_json(outline_raw)
+        try:
+            outline = _parse_json(outline_raw)
+        except ValueError as e:
+            logger.warning("Outline JSON parse failed, using fallback outline template: %s", e)
+            outline = {
+                "title": f"{keyword} - SEO article",
+                "meta_title": f"{keyword} | SEO",
+                "meta_description": f"Auto generated article for {keyword}",
+                "sections": [
+                    {"heading": "Introduction", "subpoints": ["Introduce topic", "Why it matters"]},
+                    {"heading": "Main points", "subpoints": ["Point 1", "Point 2", "Point 3"]},
+                    {"heading": "FAQ", "subpoints": ["Q: What is ...? A: ...", "Q: How ...? A: ..."]},
+                ],
+                "keywords": [keyword],
+                "secondary_keywords": [],
+            }
 
         time.sleep(1)  # avoid rate limit between calls
 
@@ -270,7 +306,29 @@ Return ONLY a JSON object:
 Return ONLY the JSON, no explanation."""
 
         content_raw = _call_groq(client, model, content_prompt, max_tokens=3000, temperature=0.7)
-        return _parse_json(content_raw)
+        try:
+            return _parse_json(content_raw)
+        except ValueError as e:
+            logger.warning("Content JSON parse failed, using fallback content output: %s", e)
+            # Fallback to raw content included in the AI text, if available
+            content_value = ''
+            m = re.search(r'"content"\s*:\s*"(.*?)"\s*(?:,\s*"excerpt"|\n\s*\})', content_raw, re.DOTALL)
+            if m:
+                content_value = m.group(1).encode('utf-8').decode('unicode_escape')
+            else:
+                content_value = content_raw
+
+            return {
+                "title": outline.get("title", keyword),
+                "content": content_value,
+                "excerpt": outline.get("excerpt", "Generated content could not be parsed completely."),
+                "meta_title": outline.get("meta_title", ""),
+                "meta_description": outline.get("meta_description", ""),
+                "keywords": outline.get("keywords", [keyword]),
+                "secondary_keywords": outline.get("secondary_keywords", []),
+                "internal_links": [],
+                "schema_markup": "",
+            }
 
     def _generate_youtube_article(self, keyword: str, youtube_url: str) -> Dict:
         """Generate article from YouTube video transcript."""
@@ -317,7 +375,22 @@ Return ONLY a JSON object:
 Return ONLY JSON."""
 
         raw = _call_groq(client, model, prompt, max_tokens=3000, temperature=0.7)
-        data = _parse_json(raw)
+        try:
+            data = _parse_json(raw)
+        except ValueError as e:
+            logger.warning("YouTube article JSON parse failed, fallback minimal model response: %s", e)
+            data = {
+                "title": f"{keyword} (YouTube summary)",
+                "content": raw,
+                "excerpt": "Auto-generated transcript article, may include raw text.",
+                "meta_title": keyword,
+                "meta_description": keyword,
+                "keywords": [keyword],
+                "secondary_keywords": [],
+                "internal_links": [],
+                "schema_markup": "",
+            }
+
         data["youtube_url"] = youtube_url
         return data
 

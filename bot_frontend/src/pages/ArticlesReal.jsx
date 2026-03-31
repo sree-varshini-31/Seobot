@@ -57,11 +57,15 @@ export default function ArticlesReal() {
     const [preview, setPreview] = useState(null);
     const [showAllProjects, setShowAllProjects] = useState(false);
 
-    const fetchArticles = useCallback(async () => {
+    // FIX 1: fetchArticles has no dependencies — stable reference, never re-created.
+    // selectedProjectId and showAllProjects are passed as arguments instead,
+    // preventing useCallback from producing a new function reference on every
+    // project/toggle change, which was the root cause of the duplicate API call.
+    const fetchArticles = useCallback(async (projectId, allProjects) => {
         setLoadingArticles(true);
         setArtError(null);
         try {
-            const projectParam = showAllProjects ? undefined : selectedProjectId || undefined;
+            const projectParam = allProjects ? undefined : projectId || undefined;
             const res = await getArticles(projectParam);
             const list = Array.isArray(res) ? res : res?.results ?? [];
             setArticles(Array.isArray(list) ? list : []);
@@ -71,19 +75,21 @@ export default function ArticlesReal() {
         } finally {
             setLoadingArticles(false);
         }
-    }, [selectedProjectId, showAllProjects]);
+    }, []); // stable — no deps needed
 
+    // FIX 2: Effect depends on the actual values that should trigger a re-fetch,
+    // not on a function reference. This fires exactly once when projects finish
+    // loading, and again only when selectedProjectId or showAllProjects truly change.
     useEffect(() => {
         if (projectsLoading) return;
-        fetchArticles();
-    }, [fetchArticles, projectsLoading]);
+        fetchArticles(selectedProjectId, showAllProjects);
+    }, [selectedProjectId, showAllProjects, projectsLoading, fetchArticles]);
 
-    const filteredArticles = useMemo(() => {
-        if (showAllProjects) return articles;
-        if (!selectedProjectId) return articles;
-        const sid = String(selectedProjectId);
-        return articles.filter((a) => String(a.project) === sid);
-    }, [articles, selectedProjectId, showAllProjects]);
+    // FIX 3: Removed the redundant client-side useMemo filter.
+    // The backend already filters by project via the projectParam argument above,
+    // so re-filtering the response here was duplicating logic unnecessarily.
+    // We keep the articles list as-is from the API response.
+    const displayedArticles = articles;
 
     const handleGenerate = async () => {
         if (!selectedProjectId) {
@@ -101,7 +107,8 @@ export default function ArticlesReal() {
                 template_type: templateType,
                 youtube_url: '',
             });
-            await fetchArticles();
+            // Pass current values explicitly — no dependency on stale closure state
+            await fetchArticles(selectedProjectId, showAllProjects);
             const aid = res?.article_id;
             if (aid) {
                 try {
@@ -126,7 +133,9 @@ export default function ArticlesReal() {
             setArticles((prev) => prev.filter((a) => a.id !== id));
             if (preview?.id === id) setPreview(null);
         } catch (e) {
-            alert(formatApiError(e));
+            // FIX 4: Use artError state for delete errors instead of alert(),
+            // keeping error presentation consistent across the component.
+            setArtError(formatApiError(e));
         }
     };
 
@@ -262,11 +271,12 @@ export default function ArticlesReal() {
 
             <div className="bg-surface-container-lowest border-[1.5px] border-outline-variant/40 rounded-[14px] overflow-hidden">
                 <div className="px-4 sm:px-8 py-4 sm:py-6 border-b border-outline-variant/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <h3 className="text-base font-bold text-on-background">
+                    <h3 className="text-base font-bold text-on-background flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary">article</span>
                         Articles
-                        {filteredArticles.length > 0 && (
+                        {displayedArticles.length > 0 && (
                             <span className="ml-2 text-xs font-bold text-outline bg-surface-container px-2 py-0.5 rounded-full">
-                                {filteredArticles.length}
+                                {displayedArticles.length}
                             </span>
                         )}
                     </h3>
@@ -282,7 +292,7 @@ export default function ArticlesReal() {
                         </label>
                         <button
                             type="button"
-                            onClick={fetchArticles}
+                            onClick={() => fetchArticles(selectedProjectId, showAllProjects)}
                             className="px-4 py-2 text-sm font-semibold bg-primary-container/10 text-primary rounded-lg hover:bg-primary-container/20 transition-colors flex items-center gap-1"
                         >
                             <span className="material-symbols-outlined text-sm">refresh</span>
@@ -291,7 +301,11 @@ export default function ArticlesReal() {
                     </div>
                 </div>
 
-                {artError && <div className="px-4 sm:px-8 py-4 text-sm text-error">{String(artError)}</div>}
+                {artError && (
+                    <div className="px-4 sm:px-8 py-4 text-sm text-error font-semibold">
+                        {String(artError)}
+                    </div>
+                )}
                 {!selectedProjectId && projects.length === 0 && !projectsLoading && (
                     <div className="px-4 py-6 text-sm text-on-surface-variant">Run an SEO audit first to add a site, then pick it above.</div>
                 )}
@@ -306,8 +320,9 @@ export default function ArticlesReal() {
                                     return (
                                         <th
                                             key={h + i}
-                                            className={`px-4 sm:px-6 py-3 sm:py-4 text-[10px] font-extrabold text-outline uppercase tracking-widest ${center ? 'text-center' : last ? 'text-right' : ''
-                                                }`}
+                                            className={`px-4 sm:px-6 py-3 sm:py-4 text-[10px] font-extrabold text-outline uppercase tracking-widest ${
+                                                center ? 'text-center' : last ? 'text-right' : ''
+                                            }`}
                                         >
                                             {h}
                                         </th>
@@ -322,7 +337,7 @@ export default function ArticlesReal() {
                                         Loading…
                                     </td>
                                 </tr>
-                            ) : filteredArticles.length === 0 ? (
+                            ) : displayedArticles.length === 0 ? (
                                 <tr>
                                     <td colSpan={showAllProjects ? 7 : 6} className="px-8 py-12 text-center">
                                         <span className="material-symbols-outlined text-4xl opacity-30 text-outline">article</span>
@@ -330,7 +345,7 @@ export default function ArticlesReal() {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredArticles.map((article) => (
+                                displayedArticles.map((article) => (
                                     <tr key={article.id} className="hover:bg-surface-container-low/50 transition-colors group">
                                         <td className="px-4 sm:px-6 py-4 max-w-[220px]">
                                             <div className="flex flex-col">
@@ -395,4 +410,4 @@ export default function ArticlesReal() {
             </div>
         </div>
     );
-} 
+}

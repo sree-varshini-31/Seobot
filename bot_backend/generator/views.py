@@ -57,6 +57,8 @@ class ArticleViewSet(viewsets.ModelViewSet):
             })
         except Project.DoesNotExist:
             return Response({"error": "Project not found"}, status=404)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
@@ -220,20 +222,29 @@ def keyword_difficulty_checker(request):
     if not keywords:
         return Response({"error": "keywords are required"}, status=400)
 
+    import os
     from serp.services import get_serp_results
+    if not os.getenv('SERPAPI_API_KEY'):
+        return Response({"success": False, "error": "SERPAPI_API_KEY is not configured in environment"}, status=500)
+
     results = []
-    for keyword in keywords[:10]:
-        serp = get_serp_results(keyword, num_results=10)
-        n = len(serp)
-        difficulty = 70 if n >= 9 else 45 if n >= 6 else 20
-        competition = "High" if n >= 9 else "Medium" if n >= 6 else "Low"
-        results.append({
-            "keyword": keyword,
-            "difficulty": difficulty,
-            "serp_results_found": n,
-            "competition": competition,
-        })
-    return Response({"success": True, "results": results})
+
+    try:
+        for keyword in keywords[:10]:
+            serp = get_serp_results(keyword, num_results=10)
+            n = len(serp)
+            difficulty = 70 if n >= 9 else 45 if n >= 6 else 20
+            competition = "High" if n >= 9 else "Medium" if n >= 6 else "Low"
+            results.append({
+                "keyword": keyword,
+                "difficulty": difficulty,
+                "serp_results_found": n,
+                "competition": competition,
+            })
+
+        return Response({"success": True, "results": results})
+    except Exception as e:
+        return Response({"success": False, "error": str(e)}, status=500)
 
 
 @api_view(["POST"])
