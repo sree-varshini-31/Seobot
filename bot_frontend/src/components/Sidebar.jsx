@@ -47,59 +47,46 @@ export default function Sidebar({ mobileOpen, onNavigate }) {
 
                 {/* Nav links */}
                 <nav className="flex-1 flex flex-col gap-y-1">
-                    <NavLink to="/dashboard" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>dashboard</span>
-                                <span>Dashboard</span>
-                            </>
-                        )}
-                    </NavLink>
+                    {/* User links - hidden for admins */}
+                    {!isAdmin && (
+                        <>
+                            <NavLink to="/dashboard" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>dashboard</span>
+                                        <span>Dashboard</span>
+                                    </>
+                                )}
+                            </NavLink>
 
-                    <NavLink to="/audit" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>search_check</span>
-                                <span>SEO Audit</span>
-                            </>
-                        )}
-                    </NavLink>
+                            <NavLink to="/audit" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>search_check</span>
+                                        <span>SEO Audit</span>
+                                    </>
+                                )}
+                            </NavLink>
 
-                    <NavLink to="/keywords" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>key</span>
-                                <span>Keywords</span>
-                            </>
-                        )}
-                    </NavLink>
+                            <NavLink to="/keywords" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>key</span>
+                                        <span>Keywords</span>
+                                    </>
+                                )}
+                            </NavLink>
 
-                    <NavLink to="/articles" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>article</span>
-                                <span>Articles</span>
-                            </>
-                        )}
-                    </NavLink>
-                    {/* 
-                    <NavLink to="/links" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>link</span>
-                                <span>Internal Links</span>
-                            </>
-                        )}
-                    </NavLink>
-
-                    <NavLink to="/tools" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>build</span>
-                                <span>SEO Tools</span>
-                            </>
-                        )}
-                    </NavLink> */}
+                            <NavLink to="/articles" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>article</span>
+                                        <span>Articles</span>
+                                    </>
+                                )}
+                            </NavLink>
+                        </>
+                    )}
 
                     {/* Admin only */}
                     {isAdmin && (

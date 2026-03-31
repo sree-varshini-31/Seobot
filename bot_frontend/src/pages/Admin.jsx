@@ -1,17 +1,23 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { adminGetUsers, adminUpdateUser, adminDeleteUser } from '../api/client';
 import { apiClient } from '../api/client';
 
 export default function Admin() {
+    const location = useLocation();
+    const navigate = useNavigate();
     const [users, setUsers] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selected, setSelected] = useState(null);
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState(location.state?.filter || 'all');
     const [confirmDelete, setConfirmDelete] = useState(null);
     const [actionLoading, setActionLoading] = useState(false);
     const [msg, setMsg] = useState(null);
+    const [deactivationReason, setDeactivationReason] = useState("");
+    const [showDeactivateModal, setShowDeactivateModal] = useState(null);
 
     useEffect(() => {
         fetchAll();
@@ -36,13 +42,32 @@ export default function Admin() {
         }
     }
 
-    async function handleToggleActive(user) {
+    async function executeDeactivation(user, reason) {
         setActionLoading(true);
         try {
-            await adminUpdateUser(user.id, { is_active: !user.is_active });
-            setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_active: !u.is_active } : u));
-            setSelected(prev => prev?.id === user.id ? { ...prev, is_active: !prev.is_active } : prev);
-            setMsg(`User ${user.username} ${!user.is_active ? 'activated' : 'deactivated'}.`);
+            await adminUpdateUser(user.id, { is_active: false, deactivation_reason: reason });
+            setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_active: false, deactivation_reason: reason } : u));
+            setSelected(prev => prev?.id === user.id ? { ...prev, is_active: false, deactivation_reason: reason } : prev);
+            setMsg(`User ${user.username} deactivated.`);
+            setShowDeactivateModal(null);
+        } catch {
+            setMsg('Failed to deactivate user.');
+        } finally {
+            setActionLoading(false);
+        }
+    }
+
+    async function handleToggleActive(user) {
+        if (user.is_active) {
+            setShowDeactivateModal(user);
+            return;
+        }
+        setActionLoading(true);
+        try {
+            await adminUpdateUser(user.id, { is_active: true });
+            setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_active: true, deactivation_reason: null } : u));
+            setSelected(prev => prev?.id === user.id ? { ...prev, is_active: true, deactivation_reason: null } : prev);
+            setMsg(`User ${user.username} activated.`);
         } catch {
             setMsg('Failed to update user.');
         } finally {
@@ -65,16 +90,20 @@ export default function Admin() {
         }
     }
 
-    const filtered = users.filter(u =>
-        u.username?.toLowerCase().includes(search.toLowerCase()) ||
-        u.email?.toLowerCase().includes(search.toLowerCase())
-    );
+    const filtered = users.filter(u => {
+        const matchesSearch = u.username?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase());
+        if (!matchesSearch) return false;
+        if (statusFilter === 'active') return u.is_active;
+        if (statusFilter === 'inactive') return !u.is_active;
+        if (statusFilter === 'admin') return u.is_staff || u.is_superuser;
+        return true;
+    });
 
     const statCards = [
-        { label: 'Total Users', value: stats?.users?.total ?? users.length, icon: 'group', color: 'text-blue-600 bg-blue-50' },
-        { label: 'Active Users', value: stats?.users?.active ?? users.filter(u => u.is_active).length, icon: 'check_circle', color: 'text-green-600 bg-green-50' },
-        { label: 'Total Projects', value: stats?.projects?.total ?? '—', icon: 'folder', color: 'text-orange-600 bg-orange-50' },
-        { label: 'Total Articles', value: stats?.content?.total_articles ?? '—', icon: 'article', color: 'text-purple-600 bg-purple-50' },
+        { label: 'Total Users', id: 'all', value: stats?.users?.total ?? users.length, icon: 'group', color: 'text-blue-600 bg-blue-50' },
+        { label: 'Active', id: 'active', value: stats?.users?.active ?? users.filter(u => u.is_active).length, icon: 'check_circle', color: 'text-green-600 bg-green-50' },
+        { label: 'Inactive', id: 'inactive', value: stats?.users ? (stats.users.total - stats.users.active) : users.filter(u => !u.is_active).length, icon: 'block', color: 'text-orange-600 bg-orange-50' },
+        { label: 'Admins', id: 'admin', value: stats?.users?.admins ?? users.filter(u => u.is_staff).length, icon: 'admin_panel_settings', color: 'text-purple-600 bg-purple-50' },
     ];
 
     return (
@@ -82,7 +111,10 @@ export default function Admin() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-extrabold text-on-surface tracking-tight">Admin Panel</h1>
+                    <h1 className="flex items-center gap-3 text-2xl font-extrabold text-on-surface tracking-tight">
+                        <span className="material-symbols-outlined text-[28px] text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>admin_panel_settings</span>
+                        Admin Panel
+                    </h1>
                     <p className="text-sm text-outline mt-1">Manage all users and platform data</p>
                 </div>
                 <span className="text-[10px] font-bold bg-purple-100 text-purple-700 px-3 py-1 rounded-full border border-purple-200 uppercase tracking-widest">
@@ -107,7 +139,11 @@ export default function Admin() {
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {statCards.map(s => (
-                    <div key={s.label} className="bg-surface-container-lowest border border-outline-variant/30 rounded-2xl p-4 shadow-sm">
+                    <div 
+                        key={s.label} 
+                        onClick={() => setStatusFilter(s.id)}
+                        className={`bg-surface-container-lowest border rounded-2xl p-4 shadow-sm cursor-pointer transition-all ${statusFilter === s.id ? 'border-primary ring-1 ring-primary' : 'border-outline-variant/30 hover:border-primary/50'}`}
+                    >
                         <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.color}`}>
                             <span className="material-symbols-outlined text-[18px]">{s.icon}</span>
                         </div>
@@ -207,6 +243,29 @@ export default function Admin() {
                                         {selected.is_active ? 'Active' : 'Inactive'}
                                     </span>
                                 </div>
+                                {!selected.is_active && selected.deactivation_reason && (
+                                    <div className="flex flex-col mt-2 p-2 bg-error/5 border border-error/10 rounded-lg">
+                                        <span className="text-outline text-[10px] uppercase font-bold tracking-wider">Reason Disabled</span>
+                                        <span className="font-bold text-error break-words">{selected.deactivation_reason}</span>
+                                    </div>
+                                )}
+                                <div className="mt-4 pt-4 border-t border-outline-variant/20 space-y-2">
+                                    <div className="text-[10px] font-extrabold uppercase tracking-widest text-outline mb-2">Usage Stats</div>
+                                    <div className="flex justify-between">
+                                        <span className="text-outline">API Calls</span>
+                                        <span className="font-bold">{selected.api_calls_used ?? 0}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-outline">Sites Searched</span>
+                                        <span className="font-bold">{selected.websites_searched ?? 0}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-outline">Data Received</span>
+                                        <span className="font-bold">
+                                            {selected.data_received_bytes ? (selected.data_received_bytes / 1024).toFixed(1) + ' KB' : '0 KB'}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* User's projects */}
@@ -273,6 +332,37 @@ export default function Admin() {
                                 className="flex-1 py-2.5 text-sm font-bold bg-error text-white rounded-xl hover:bg-error/90 transition-colors disabled:opacity-60"
                             >
                                 {actionLoading ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Deactivation confirm modal */}
+            {showDeactivateModal && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+                        <h3 className="text-base font-extrabold text-on-surface mb-2">Deactivate User?</h3>
+                        <p className="text-sm text-outline mb-6">
+                            You are about to deactivate <strong>{showDeactivateModal.username}</strong>. They will see an automated message that their account has been deactivated by an administrator when they try to log in.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowDeactivateModal(null);
+                                }}
+                                className="flex-1 py-2.5 text-sm font-bold border border-outline-variant/40 rounded-xl hover:bg-surface-container-low transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={actionLoading}
+                                onClick={() => executeDeactivation(showDeactivateModal, "Your account has been deactivated by an administrator.")}
+                                className="flex-1 py-2.5 text-sm font-bold bg-error text-white rounded-xl hover:bg-error/90 transition-colors disabled:opacity-60"
+                            >
+                                {actionLoading ? 'Saving…' : 'Deactivate'}
                             </button>
                         </div>
                     </div>

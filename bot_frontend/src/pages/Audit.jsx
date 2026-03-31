@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { auditWebsite } from '../api/client';
+import { downloadPDF } from '../utils/pdf';
 
 function ScoreRing({ score = 0 }) {
     const pct = Math.min(100, Math.max(0, score || 0));
@@ -87,12 +89,48 @@ function toTechCheckStatus(tech) {
     ];
 }
 
+class AuditErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { error: null, errorInfo: null };
+    }
+    componentDidCatch(error, errorInfo) {
+        this.setState({ error, errorInfo });
+    }
+    render() {
+        if (this.state.error) {
+            return (
+                <div className="p-8 max-w-7xl mx-auto">
+                    <div className="bg-red-50 border border-red-200 text-red-800 p-6 rounded-xl font-mono text-xs overflow-auto whitespace-pre-wrap">
+                        <h2 className="text-lg font-bold mb-4 text-red-900">React Render Crash Detected</h2>
+                        <p className="font-bold mb-2">{String(this.state.error)}</p>
+                        <p className="opacity-80 mt-2">{this.state.error.stack}</p>
+                        <p className="opacity-80 mt-4 border-t border-red-200 pt-4">{this.state.errorInfo?.componentStack}</p>
+                    </div>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 export default function Audit() {
-    const [url, setUrl] = useState('');
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [url, setUrl] = useState(location.state?.url || '');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);
     const [lastAnalyzed, setLastAnalyzed] = useState(null);
+    const [pdfLoading, setPdfLoading] = useState(false);
+
+    // Auto-analyze if URL is passed via state
+    useEffect(() => {
+        if (location.state?.url) {
+            setUrl(location.state.url);
+            handleAnalyze(null, location.state.url);
+        }
+    }, [location.state?.url]);
 
     const techChecks = useMemo(() => toTechCheckStatus(result?.technical_seo), [result]);
 
@@ -102,9 +140,9 @@ export default function Audit() {
         return { total, passed, needsWork: total - passed };
     }, [techChecks]);
 
-    const handleAnalyze = async (e) => {
+    const handleAnalyze = async (e, targetUrl = url) => {
         e?.preventDefault?.();
-        if (!url.trim()) return;
+        if (!targetUrl.trim()) return;
 
         setLoading(true);
         setError(null);
@@ -113,7 +151,7 @@ export default function Audit() {
 
         try {
             // auditWebsite hits /audit/website/ — the correct endpoint
-            const data = await auditWebsite(url);
+            const data = await auditWebsite(targetUrl);
             setResult(data);
             setLastAnalyzed(new Date().toLocaleString());
         } catch (err) {
@@ -124,10 +162,12 @@ export default function Audit() {
     };
 
     return (
-        <div className="px-4 py-6 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full space-y-6 sm:space-y-8">
+        <AuditErrorBoundary>
+            <div className="px-4 py-6 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full space-y-6 sm:space-y-8">
             <section className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
                 <div className="space-y-2 sm:space-y-3">
-                    <h1 className="text-2xl sm:text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">
+                    <h1 className="flex items-center gap-3 text-2xl sm:text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">
+                        <span className="material-symbols-outlined text-[32px] text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>search_check</span>
                         SEO Audit
                     </h1>
                     <p className="text-on-surface-variant max-w-2xl leading-relaxed text-sm sm:text-base">
@@ -166,9 +206,27 @@ export default function Audit() {
             )}
 
             {result && lastAnalyzed && (
-                <p className="text-xs sm:text-sm text-on-surface-variant">
-                    Last analyzed: {lastAnalyzed}
-                </p>
+                <div className="flex items-center justify-between">
+                    <p className="text-xs sm:text-sm text-on-surface-variant font-medium">
+                        Last analyzed: {lastAnalyzed}
+                    </p>
+                    <button 
+                        onClick={async () => {
+                            setPdfLoading(true);
+                            await downloadPDF('audit-report-container', `SEO_Report_${new URL(result.url || url).hostname}.pdf`);
+                            setPdfLoading(false);
+                        }}
+                        disabled={pdfLoading}
+                        className="flex items-center gap-2 text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                        {pdfLoading ? (
+                            <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                        ) : (
+                            <span className="material-symbols-outlined text-[16px]">download</span>
+                        )}
+                        {pdfLoading ? 'Generating PDF...' : 'Download Report'}
+                    </button>
+                </div>
             )}
 
             {!loading && !result && (
@@ -184,60 +242,8 @@ export default function Audit() {
             )}
 
             {result && (
-                <section className="space-y-6 sm:space-y-8">
+                <section id="audit-report-container" className="space-y-6 sm:space-y-8 bg-background p-1 md:p-2 -m-1 md:-m-2 rounded-[28px]">
 
-                    {/* Missing / Weak elements */}
-                    {Array.isArray(result.missing_on_page) && result.missing_on_page.length > 0 && (
-                        <div className="bg-[#fef7e0] border border-[#fdd663] rounded-2xl p-5 sm:p-6">
-                            <div className="text-[11px] font-extrabold uppercase tracking-widest text-[#b06000] mb-3">Missing or weak on your page</div>
-                            <ul className="space-y-2 text-sm font-semibold text-[#5f4b00]">
-                                {result.missing_on_page.map((m, i) => (
-                                    <li key={i} className="flex gap-2">
-                                        <span className="text-[#b06000] shrink-0">•</span>
-                                        <span>{m}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-
-                    {/* Live SERP */}
-                    {result.serp_snapshot?.organic_results?.length > 0 && (
-                        <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-5 sm:p-8 overflow-x-auto">
-                            <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-4">Live Google SERP (SerpAPI)</div>
-                            <p className="text-xs text-on-surface-variant mb-4">
-                                Query: <span className="font-bold text-on-surface">{result.serp_snapshot.primary_query}</span>
-                                {result.keyword_search_volume && result.serp_snapshot.primary_query && (
-                                    <span className="ml-2">
-                                        · Est. volume:{' '}
-                                        {result.keyword_search_volume[result.serp_snapshot.primary_query] ?? '—'}
-                                    </span>
-                                )}
-                            </p>
-                            <div className="space-y-3 min-w-[520px] sm:min-w-0">
-                                {result.serp_snapshot.organic_results.slice(0, 8).map((row, i) => (
-                                    <div key={i} className="border-b border-outline-variant/30 pb-3 last:border-0">
-                                        <div className="text-xs font-extrabold text-primary">#{row.position}</div>
-                                        <div className="text-sm font-bold text-on-surface line-clamp-2">{row.title}</div>
-                                        <div className="text-xs text-on-surface-variant truncate">{row.url}</div>
-                                        {row.snippet && <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">{row.snippet}</div>}
-                                    </div>
-                                ))}
-                            </div>
-                            {result.serp_snapshot.related_searches?.length > 0 && (
-                                <div className="mt-4 pt-4 border-t border-outline-variant/30">
-                                    <div className="text-xs font-bold text-outline mb-2">Related searches</div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {result.serp_snapshot.related_searches.slice(0, 10).map((q, j) => (
-                                            <span key={j} className="text-xs px-2 py-1 rounded-full bg-[#e8f0fe] text-[#174ea6] font-semibold">
-                                                {q}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
 
                     {/* Score + Technical audit */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
@@ -263,12 +269,15 @@ export default function Audit() {
                                 <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-3">Issues Found</div>
                                 {Array.isArray(result.issues) && result.issues.length > 0 ? (
                                     <div className="space-y-2">
-                                        {result.issues.slice(0, 6).map((issue, i) => (
-                                            <div key={i} className="flex items-start gap-2 text-[13px] font-semibold text-[#c5221f]">
-                                                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
-                                                <span className="leading-relaxed">{issue}</span>
-                                            </div>
-                                        ))}
+                                        {result.issues.slice(0, 6).map((issue, i) => {
+                                            const message = typeof issue === 'object' && issue !== null ? (issue.text || issue.message || JSON.stringify(issue)) : issue;
+                                            return (
+                                                <div key={i} className="flex items-start gap-2 text-[13px] font-semibold text-[#c5221f]">
+                                                    <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
+                                                    <span className="leading-relaxed">{message}</span>
+                                                </div>
+                                            );
+                                        })}
                                         {result.issues.length > 6 && (
                                             <div className="text-xs font-bold text-on-surface-variant">+{result.issues.length - 6} more</div>
                                         )}
@@ -357,23 +366,78 @@ export default function Audit() {
                         </div>
                     </div>
 
+                    {/* Missing / Weak elements */}
+                    {Array.isArray(result.missing_on_page) && result.missing_on_page.length > 0 && (
+                        <div className="bg-[#fef7e0] border border-[#fdd663] rounded-2xl p-5 sm:p-6">
+                            <div className="text-[11px] font-extrabold uppercase tracking-widest text-[#b06000] mb-3">Missing or weak on your page</div>
+                            <ul className="space-y-2 text-sm font-semibold text-[#5f4b00]">
+                                {result.missing_on_page.map((m, i) => (
+                                    <li key={i} className="flex gap-2">
+                                        <span className="text-[#b06000] shrink-0">•</span>
+                                        <span>{m}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {/* Live SERP */}
+                    {result.serp_snapshot?.organic_results?.length > 0 && (
+                        <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-5 sm:p-8 overflow-x-auto">
+                            <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-4">Live Google SERP (SerpAPI)</div>
+                            <p className="text-xs text-on-surface-variant mb-4">
+                                Query: <span className="font-bold text-on-surface">{result.serp_snapshot.primary_query}</span>
+                                {result.keyword_search_volume && result.serp_snapshot.primary_query && (
+                                    <span className="ml-2">
+                                        · Est. volume:{' '}
+                                        {result.keyword_search_volume[result.serp_snapshot.primary_query] ?? '—'}
+                                    </span>
+                                )}
+                            </p>
+                            <div className="space-y-3 min-w-[520px] sm:min-w-0">
+                                {result.serp_snapshot.organic_results.slice(0, 8).map((row, i) => (
+                                    <div key={i} className="border-b border-outline-variant/30 pb-3 last:border-0">
+                                        <div className="text-xs font-extrabold text-primary">#{row.position}</div>
+                                        <div className="text-sm font-bold text-on-surface line-clamp-2">{row.title}</div>
+                                        <div className="text-xs text-on-surface-variant truncate">{row.url}</div>
+                                        {row.snippet && <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">{row.snippet}</div>}
+                                    </div>
+                                ))}
+                            </div>
+                            {result.serp_snapshot.related_searches?.length > 0 && (
+                                <div className="mt-4 pt-4 border-t border-outline-variant/30">
+                                    <div className="text-xs font-bold text-outline mb-2">Related searches</div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {result.serp_snapshot.related_searches.slice(0, 10).map((q, j) => (
+                                            <span key={j} className="text-xs px-2 py-1 rounded-full bg-[#e8f0fe] text-[#174ea6] font-semibold">
+                                                {q}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* AI Suggestions + Backlinks */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         <div className="lg:col-span-2 bg-surface-container-lowest border border-[#eeedf5] rounded-[24px] p-8">
                             <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-1">AI Content Suggestions</div>
                             <div className="text-base font-extrabold text-on-surface mt-2 mb-5">What to write next</div>
                             <div className="space-y-5">
-                                <div>
-                                    <div className="text-sm font-bold text-on-surface-variant mb-2">Title</div>
-                                    <div className="text-[16px] font-extrabold text-on-surface">{result.content_suggestions?.title || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <div className="text-sm font-bold text-on-surface-variant mb-2">Meta Description</div>
-                                    <div className="text-[14px] font-semibold text-on-surface-variant leading-relaxed">{result.content_suggestions?.meta_description || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <div className="text-sm font-bold text-on-surface-variant mb-2">Blog Hook</div>
-                                    <div className="text-[14px] font-semibold text-on-surface-variant leading-relaxed">{result.content_suggestions?.blog || 'N/A'}</div>
+                                <div className="space-y-6">
+                                    <div>
+                                        <div className="text-sm font-bold text-on-surface-variant mb-2">Title</div>
+                                        <div className="text-[16px] font-extrabold text-on-surface">{(typeof result.content_suggestions?.title === 'object' ? JSON.stringify(result.content_suggestions.title) : result.content_suggestions?.title) || 'N/A'}</div>
+                                    </div>
+                                    <div className="pt-6 border-t border-[#eeedf5]">
+                                        <div className="text-sm font-bold text-on-surface-variant mb-2">Meta Description</div>
+                                        <div className="text-[14px] font-semibold text-on-surface-variant leading-relaxed">{(typeof result.content_suggestions?.meta_description === 'object' ? JSON.stringify(result.content_suggestions.meta_description) : result.content_suggestions?.meta_description) || 'N/A'}</div>
+                                    </div>
+                                    <div className="pt-6 border-t border-[#eeedf5]">
+                                        <div className="text-sm font-bold text-on-surface-variant mb-2">Blog Intro</div>
+                                        <div className="text-[14px] font-semibold text-on-surface-variant leading-relaxed">{(typeof result.content_suggestions?.blog === 'object' ? JSON.stringify(result.content_suggestions.blog) : result.content_suggestions?.blog) || 'N/A'}</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -409,11 +473,11 @@ export default function Audit() {
                                         </div>
                                         <div className="mt-3">
                                             <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Suggestion</div>
-                                            <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{k.suggestion || 'N/A'}</div>
+                                            <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{(typeof k.suggestion === 'object' ? JSON.stringify(k.suggestion) : k.suggestion) || 'N/A'}</div>
                                         </div>
                                         <div className="mt-3">
                                             <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Action</div>
-                                            <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{k.action || 'N/A'}</div>
+                                            <div className="text-[13px] font-semibold text-on-surface-variant leading-relaxed">{(typeof k.action === 'object' ? JSON.stringify(k.action) : k.action) || 'N/A'}</div>
                                         </div>
                                     </div>
                                 ))}
@@ -423,5 +487,6 @@ export default function Audit() {
                 </section>
             )}
         </div>
+        </AuditErrorBoundary>
     );
 }

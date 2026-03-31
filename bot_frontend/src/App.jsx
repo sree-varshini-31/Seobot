@@ -24,6 +24,13 @@ function PrivateRoute({ children }) {
     return token ? children : <Navigate to="/login" replace />;
 }
 
+function RoleBasedIndex() {
+    const { user } = useAuth();
+    if (!user) return null; // Wait for user object to load
+    const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
+    return isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/dashboard" replace />;
+}
+
 function AdminRoute({ children }) {
     const { token, user } = useAuth();
     if (!token) return <Navigate to="/login" replace />;
@@ -42,9 +49,9 @@ function PublicRoute({ children }) {
 function AppLayout() {
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
     return (
-        <div className="bg-surface text-on-surface min-h-screen flex selection:bg-primary-fixed selection:text-primary">
+        <div className="bg-surface text-on-surface h-screen overflow-hidden flex selection:bg-primary-fixed selection:text-primary">
             <Sidebar mobileOpen={mobileNavOpen} onNavigate={() => setMobileNavOpen(false)} />
-            <main className="flex-1 flex flex-col min-w-0 bg-background min-h-screen w-0">
+            <main className="flex-1 flex flex-col min-w-0 bg-background h-screen w-0">
                 <TopNav onMenuClick={() => setMobileNavOpen(true)} />
                 <div className="flex-1 overflow-y-auto w-full overflow-x-hidden">
                     <Outlet />
@@ -68,7 +75,7 @@ export default function App() {
 
                         {/* Protected */}
                         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
-                            <Route index element={<Navigate to="/dashboard" replace />} />
+                            <Route index element={<RoleBasedIndex />} />
                             <Route path="dashboard" element={<Dashboard />} />
                             <Route path="audit" element={<Audit />} />
                             <Route path="keywords" element={<KeywordsReal />} />

@@ -98,15 +98,40 @@ def check_page_speed(url: str) -> dict:
             return {"error": err_msg}
         cats = data.get("lighthouseResult", {}).get("categories", {})
         audits = data.get("lighthouseResult", {}).get("audits", {})
+        crux = data.get("loadingExperience", {}).get("metrics", {})
+
+        # 1. Try to get CrUX (real-world field data) first.
+        # It's structured as: MTRC_NAME: {"percentile": value}
+        # Note: TBT and Speed Index are Lab-only metrics, so they won't be in CrUX.
+        field_lcp = crux.get("LARGEST_CONTENTFUL_PAINT_MS", {}).get("percentile")
+        field_cls = crux.get("CUMULATIVE_LAYOUT_SHIFT_SCORE", {}).get("percentile")
+        
+        # 2. Extract Lab Data
+        lab_lcp = audits.get("largest-contentful-paint", {}).get("numericValue")
+        lab_tbt = audits.get("total-blocking-time", {}).get("numericValue")
+        lab_cls = audits.get("cumulative-layout-shift", {}).get("numericValue")
+        lab_si = audits.get("speed-index", {}).get("numericValue")
+
+        # 3. Format gracefully
+        lcp_val = (f"{round(field_lcp / 1000, 1)} s" if field_lcp else 
+                   (f"{round(lab_lcp / 1000, 1)} s" if lab_lcp else "N/A"))
+        
+        tbt_val = f"{round(lab_tbt)} ms" if lab_tbt is not None else "N/A"
+        
+        cls_val = (str(round(field_cls / 100, 3)) if field_cls is not None else 
+                   (str(round(lab_cls, 3)) if lab_cls is not None else "N/A"))
+                   
+        si_val = f"{round(lab_si / 1000, 1)} s" if lab_si is not None else "N/A"
+
         return {
             "performance_score": round((cats.get("performance", {}).get("score", 0) or 0) * 100),
             "seo_score": round((cats.get("seo", {}).get("score", 0) or 0) * 100),
             "accessibility_score": round((cats.get("accessibility", {}).get("score", 0) or 0) * 100),
             "core_web_vitals": {
-                "lcp": audits.get("largest-contentful-paint", {}).get("displayValue", "N/A"),
-                "total_blocking_time": audits.get("total-blocking-time", {}).get("displayValue", "N/A"),
-                "cls": audits.get("cumulative-layout-shift", {}).get("displayValue", "N/A"),
-                "speed_index": audits.get("speed-index", {}).get("displayValue", "N/A"),
+                "lcp": lcp_val,
+                "total_blocking_time": tbt_val,
+                "cls": cls_val,
+                "speed_index": si_val,
             },
             "mobile_friendly": True,
         }

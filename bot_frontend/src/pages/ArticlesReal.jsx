@@ -306,9 +306,8 @@ export default function ArticlesReal() {
                                     return (
                                         <th
                                             key={h + i}
-                                            className={`px-4 sm:px-6 py-3 sm:py-4 text-[10px] font-extrabold text-outline uppercase tracking-widest ${
-                                                center ? 'text-center' : last ? 'text-right' : ''
-                                            }`}
+                                            className={`px-4 sm:px-6 py-3 sm:py-4 text-[10px] font-extrabold text-outline uppercase tracking-widest ${center ? 'text-center' : last ? 'text-right' : ''
+                                                }`}
                                         >
                                             {h}
                                         </th>
@@ -396,4 +395,4 @@ export default function ArticlesReal() {
             </div>
         </div>
     );
-}
+} 

@@ -2,6 +2,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 import os
 import requests as http_requests
+import concurrent.futures
 
 from serp.services import get_serp_full, get_serp_results, get_search_volume
 from crawler.services import crawl_website
@@ -334,21 +335,8 @@ def _build_missing_elements(tech_bundle: dict, audit_issues: list, kw_density: d
 
 
 def analyze_website(project_id: int, url: str):
-
-    # 🔹 1. Crawl Website
-    data = crawl_website(url)
-    if isinstance(data, dict) and data.get("error"):
-        return {"error": data["error"]}
-
-    # 🔹 2. SEO Audit
-    audit_result = seo_audit(data)
-    score = audit_result.get("seo_score", 0)
-
-    # 🔹 3. Extract Keywords
-    keywords = extract_keywords(data.get("content", ""))
     your_domain = _normalize_domain(url)
 
-    # 🔹 4. Check for Existing Cached SERP Data to Save API Costs
     cached_serp = None
     if project_id:
         from projects.models import Project
@@ -359,81 +347,104 @@ def analyze_website(project_id: int, url: str):
         except Exception:
             pass
 
-    if cached_serp:
-        your_position = cached_serp.get("your_google_rank")
-        keyword_search_volume = cached_serp.get("keyword_search_volume", {})
-        keyword_opportunities = cached_serp.get("keyword_opportunities", [])
-        backlink_suggestions = cached_serp.get("backlink_suggestions", [])
-        content_suggestions = cached_serp.get("content_suggestions", {})
-        serp_snapshot = cached_serp.get("serp_snapshot", {})
-    else:
-        # 🔹 Brand + live Google SERP (SerpAPI)
-        brand_results, brand_related, brand, brand_extras = get_brand_keywords(your_domain)
-        brand_is_relevant = is_brand_search_relevant(brand_results, your_domain)
+    # 🔹 1. Launch network-bound tasks in parallel to map latency
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        future_crawl = executor.submit(crawl_website, url)
+        future_pagespeed = executor.submit(check_page_speed, url)
+        future_ssl = executor.submit(check_ssl, url)
+        future_robots = executor.submit(check_robots_txt, url)
+        future_sitemap = executor.submit(check_sitemap, url)
+        
+        # We only need to fetch brand SERP if we don't have cached data
+        future_brand = executor.submit(get_brand_keywords, your_domain) if not cached_serp else None
 
-        if brand_is_relevant:
-            main_keyword = keywords[0] if keywords else (brand_related[0] if brand_related else brand)
-            serp_results = brand_results
-            opportunity_keywords = brand_related[:5]
-            primary_serp_extras = brand_extras or {}
-            related_for_groq = brand_related
+        # Wait for the HTML crawl (critical path for keywords and on-page SEO)
+        data = future_crawl.result()
+        if isinstance(data, dict) and data.get("error"):
+            # Cancel remaining tasks conceptually (they'll finish in bg)
+            return {"error": data["error"]}
+
+        # 🔹 2. SEO Audit & Keyword Extraction (CPU bound, runs after crawl)
+        audit_result = seo_audit(data)
+        score = audit_result.get("seo_score", 0)
+        keywords = extract_keywords(data.get("content", ""))
+
+        if cached_serp:
+            your_position = cached_serp.get("your_google_rank")
+            keyword_search_volume = cached_serp.get("keyword_search_volume", {})
+            keyword_opportunities = cached_serp.get("keyword_opportunities", [])
+            backlink_suggestions = cached_serp.get("backlink_suggestions", [])
+            content_suggestions = cached_serp.get("content_suggestions", {})
+            serp_snapshot = cached_serp.get("serp_snapshot", {})
         else:
-            main_keyword = keywords[0] if keywords else brand
-            content_results, content_related, content_extras = get_serp_full(main_keyword, num_results=10)
-            serp_results = content_results or []
-            opportunity_keywords = content_related[:5] if content_related else []
-            primary_serp_extras = content_extras or {}
-            related_for_groq = content_related or []
+            # Complete the SERP analysis using the concurrently fetched brand data
+            brand_results, brand_related, brand, brand_extras = future_brand.result()
+            brand_is_relevant = is_brand_search_relevant(brand_results, your_domain)
 
-        paa_list = (primary_serp_extras or {}).get("people_also_ask") or []
+            if brand_is_relevant:
+                main_keyword = keywords[0] if keywords else (brand_related[0] if brand_related else brand)
+                serp_results = brand_results
+                opportunity_keywords = brand_related[:5]
+                primary_serp_extras = brand_extras or {}
+                related_for_groq = brand_related
+            else:
+                main_keyword = keywords[0] if keywords else brand
+                content_results, content_related, content_extras = get_serp_full(main_keyword, num_results=10)
+                serp_results = content_results or []
+                opportunity_keywords = content_related[:5] if content_related else []
+                primary_serp_extras = content_extras or {}
+                related_for_groq = content_related or []
 
-        your_position = None
-        for item in (brand_results + serp_results):
-            result_domain = _normalize_domain(item.get("url", ""))
-            if result_domain == your_domain:
-                your_position = item.get("position")
-                break
+            paa_list = (primary_serp_extras or {}).get("people_also_ask") or []
 
-        # SerpAPI trend volumes
-        keyword_search_volume = {}
-        for kw in [main_keyword] + opportunity_keywords[:2]:
-            if kw and kw not in keyword_search_volume:
-                keyword_search_volume[kw] = get_search_volume(kw)
+            your_position = None
+            for item in (brand_results + serp_results):
+                result_domain = _normalize_domain(item.get("url", ""))
+                if result_domain == your_domain:
+                    your_position = item.get("position")
+                    break
 
-        # Groq
-        content_suggestions = generate_content_suggestions(
-            main_keyword,
-            serp_results,
-            your_domain,
-            related_searches=related_for_groq,
-            people_also_ask=paa_list,
-        )
-        backlink_suggestions = generate_backlink_suggestions(
-            main_keyword,
-            your_domain,
-            serp_results=serp_results,
-            related_searches=related_for_groq,
-        )
+            # SerpAPI trend volumes
+            keyword_search_volume = {}
+            for kw in [main_keyword] + opportunity_keywords[:2]:
+                if kw and kw not in keyword_search_volume:
+                    keyword_search_volume[kw] = get_search_volume(kw)
 
-        keyword_opportunities = build_keyword_opportunities(your_domain, opportunity_keywords)
+            # Groq
+            content_suggestions = generate_content_suggestions(
+                main_keyword,
+                serp_results,
+                your_domain,
+                related_searches=related_for_groq,
+                people_also_ask=paa_list,
+            )
+            backlink_suggestions = generate_backlink_suggestions(
+                main_keyword,
+                your_domain,
+                serp_results=serp_results,
+                related_searches=related_for_groq,
+            )
 
-        serp_snapshot = {
-            "brand_query": brand,
-            "primary_query": main_keyword,
-            "source": "serpapi_google",
-            "organic_results": serp_results[:10],
-            "related_searches": list(related_for_groq[:12]) if related_for_groq else [],
-            "people_also_ask": paa_list[:8],
-            "search_information": (primary_serp_extras or {}).get("search_information"),
-        }
+            keyword_opportunities = build_keyword_opportunities(your_domain, opportunity_keywords)
 
-    # 🔹 6. Technical + on-page (crawl) — before Groq so prompts use full picture
-    ssl_check = check_ssl(url)
-    robots_check = check_robots_txt(url)
-    sitemap_check = check_sitemap(url)
+            serp_snapshot = {
+                "brand_query": brand,
+                "primary_query": main_keyword,
+                "source": "serpapi_google",
+                "organic_results": serp_results[:10],
+                "related_searches": list(related_for_groq[:12]) if related_for_groq else [],
+                "people_also_ask": paa_list[:8],
+                "search_information": (primary_serp_extras or {}).get("search_information"),
+            }
+
+    # 🔹 3. Read Concurrent Technical Tasks
+    ssl_check = future_ssl.result()
+    robots_check = future_robots.result()
+    sitemap_check = future_sitemap.result()
+    pagespeed = future_pagespeed.result()
+
+    # Determine deep technical SEO tags from HTML
     tech_seo = check_technical_seo(data, url)
-
-    pagespeed = check_page_speed(url)
 
     page_text = data.get("content", "")
     readability_score = flesch_reading_ease(page_text)

@@ -51,6 +51,9 @@ def _user_public_dict(request, user):
         "avatar": avatar_url,
         "role": "admin" if _is_admin(user) else "user",
         "plan": "Free Plan",
+        "api_calls_used": profile.api_calls_used,
+        "websites_searched": profile.websites_searched,
+        "data_received_bytes": profile.data_received_bytes,
     }
 
 
@@ -117,6 +120,16 @@ def login(request):
 
     if not username or not password:
         return Response({"success": False, "error": "username and password are required"}, status=400)
+
+    try:
+        user_check = User.objects.get(username=username)
+        # Only reveal deactivation reason if password is correct
+        if user_check.check_password(password) and not user_check.is_active:
+            reason = user_check.profile.deactivation_reason if hasattr(user_check, 'profile') else None
+            msg = f"Account deactivated: {reason}" if reason else "Account deactivated by administrator."
+            return Response({"success": False, "error": msg}, status=403)
+    except User.DoesNotExist:
+        pass
 
     user = authenticate(username=username, password=password)
     if not user:
@@ -352,7 +365,8 @@ def admin_users(request):
     ).order_by('-created_at')
 
     users = (
-        User.objects.filter(is_staff=False)
+        User.objects.all()
+        .select_related('profile')
         .prefetch_related(Prefetch('project_set', queryset=projects_qs, to_attr='prefetched_projects'))
         .annotate(project_count=Count('project'))
         .order_by("-date_joined")
@@ -365,8 +379,14 @@ def admin_users(request):
             "username": u.username,
             "email": u.email,
             "is_active": u.is_active,
+            "is_staff": u.is_staff,
+            "is_superuser": u.is_superuser,
             "date_joined": u.date_joined.strftime("%Y-%m-%d"),
             "project_count": u.project_count,
+            "api_calls_used": u.profile.api_calls_used if hasattr(u, 'profile') else 0,
+            "websites_searched": u.profile.websites_searched if hasattr(u, 'profile') else 0,
+            "data_received_bytes": u.profile.data_received_bytes if hasattr(u, 'profile') else 0,
+            "deactivation_reason": u.profile.deactivation_reason if hasattr(u, 'profile') else None,
             "projects": [
                 {
                     "id": p.id,
@@ -469,7 +489,17 @@ def admin_user_detail(request, user_id):
 
         if "is_active" in request.data:
             val = request.data.get("is_active")
-            target_user.is_active = str(val).lower() in ("true", "1", "yes")
+            is_active_flag = str(val).lower() in ("true", "1", "yes")
+            target_user.is_active = is_active_flag
+            if not is_active_flag and "deactivation_reason" in request.data:
+                profile, _ = UserProfile.objects.get_or_create(user=target_user)
+                profile.deactivation_reason = request.data.get("deactivation_reason")
+                profile.save()
+            elif is_active_flag:
+                profile, _ = UserProfile.objects.get_or_create(user=target_user)
+                if profile.deactivation_reason:
+                    profile.deactivation_reason = None
+                    profile.save()
 
         target_user.save()
         return Response({

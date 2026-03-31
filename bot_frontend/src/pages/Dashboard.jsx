@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Skeleton loader ────────────────────────────────────────────────────────
 function Skeleton({ className = '' }) {
@@ -113,10 +114,14 @@ function getGreeting() {
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 export default function Dashboard() {
+    const { user } = useAuth();
     const navigate = useNavigate();
+
+    const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [adminData, setAdminData] = useState(null);
     const [stats, setStats] = useState({
         projects: null,
         articles: null,
@@ -136,6 +141,11 @@ export default function Dashboard() {
             setLoading(true);
             setError(null);
             try {
+                if (isAdmin) {
+                    const statsRes = await apiClient('/auth/admin/stats/');
+                    setAdminData(statsRes.stats);
+                }
+
                 const [projsRes, artsRes] =
                     await Promise.allSettled([
                         apiClient('/data/'),
@@ -145,7 +155,6 @@ export default function Dashboard() {
                 // ── Projects ──────────────────────────────────────────────
                 const projsData =
                     projsRes.status === 'fulfilled' ? projsRes.value : null;
-                console.log('projsData:', projsData); // 👈 debug
 
                 const projectsList = Array.isArray(projsData)
                     ? projsData
@@ -154,7 +163,6 @@ export default function Dashboard() {
                 // ── Articles ──────────────────────────────────────────────
                 const artsData =
                     artsRes.status === 'fulfilled' ? artsRes.value : null;
-                console.log('artsData:', artsData); // 👈 debug
 
                 const articleCount =
                     artsData?.count ??
@@ -205,8 +213,13 @@ export default function Dashboard() {
         year: 'numeric',
     }).format(new Date());
 
-    const statCards = [
-        { key: 'projects', icon: 'folder', label: 'Projects', navigateTo: '/profile' },
+    const statCards = isAdmin ? [
+        { key: 'total_users', icon: 'group', label: 'Total Users', value: adminData?.users?.total, navigateTo: '/admin', filterState: 'all' },
+        { key: 'active_users', icon: 'check_circle', label: 'Active Users', value: adminData?.users?.active, navigateTo: '/admin', filterState: 'active' },
+        { key: 'deactivated', icon: 'block', label: 'Deactivated Accounts', value: adminData?.users ? (adminData.users.total - adminData.users.active) : null, navigateTo: '/admin', filterState: 'inactive' },
+        { key: 'total_projects', icon: 'public', label: 'Total Projects', value: adminData?.projects?.total, navigateTo: '/admin', filterState: 'all' }
+    ] : [
+        { key: 'projects', icon: 'folder', label: 'Projects' },
         { key: 'articles', icon: 'article', label: 'Articles', navigateTo: '/articles' },
         { key: 'keywords', icon: 'key', label: 'Keywords', navigateTo: '/keywords' },
         { key: 'audits', icon: 'search_check', label: 'Audits', navigateTo: '/audit' },
@@ -218,7 +231,7 @@ export default function Dashboard() {
             {/* ── Header ───────────────────────────────────────────────── */}
             <section>
                 <h2 className="text-3xl font-extrabold tracking-tight text-on-surface">
-                    {getGreeting()} 
+                    {getGreeting()}, {user?.username || 'there'}!
                 </h2>
                 <p className="text-outline font-medium mt-1">Today is {todayDate}</p>
             </section>
@@ -239,15 +252,15 @@ export default function Dashboard() {
 
             {/* ── Stats Grid ───────────────────────────────────────────── */}
             <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {statCards.map(({ key, icon, label, navigateTo }) => (
+                {statCards.map(({ key, icon, label, navigateTo, filterState, value }) => (
                     <StatCard
                         key={key}
                         icon={icon}
                         label={label}
-                        value={stats[key]}
+                        value={value !== undefined ? value : stats[key]}
                         trend={trends[key]}
                         loading={loading}
-                        onClick={() => navigate(navigateTo)}
+                        onClick={navigateTo ? () => navigate(navigateTo, { state: { filter: filterState } }) : undefined}
                     />
                 ))}
             </section>
@@ -282,7 +295,7 @@ export default function Dashboard() {
                                     <ProjectRow
                                         key={proj.id ?? idx}
                                         proj={proj}
-                                        onClick={() => navigate('/profile')}
+                                        onClick={() => navigate('/audit', { state: { url: proj.url } })}
                                     />
                                 ))}
                             </div>
@@ -302,7 +315,7 @@ export default function Dashboard() {
                             { route: '/audit', icon: 'search_check', label: 'Run SEO Audit' },
                             { route: '/keywords', icon: 'key', label: 'Research Keywords' },
                             { route: '/articles', icon: 'edit_note', label: 'Generate Article' },
-                            { route: '/profile', icon: 'analytics', label: 'Project history' },
+                            { route: '/profile', icon: 'history', label: 'Projects History' },
                         ].map(({ route, icon, label }) => (
                             <button
                                 key={route}

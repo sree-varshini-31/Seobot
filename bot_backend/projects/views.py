@@ -146,6 +146,15 @@ def analyze_site(request):
         if result.get("error"):
             return Response({"success": False, "error": result["error"]}, status=500)
 
+        # Update user usage stats since a full analysis ran
+        from accounts.models import UserProfile
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        profile.websites_searched += 1
+        profile.api_calls_used += 1
+        import json
+        profile.data_received_bytes += len(json.dumps(result))
+        profile.save()
+
         # ── Persist full snapshot on project + history table ────────────────
         project.set_cache(result)
 

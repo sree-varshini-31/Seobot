@@ -13,10 +13,13 @@
     "@tailwindcss/postcss": "^4.2.2",
     "autoprefixer": "^10.4.27",
     "dompurify": "^3.3.3",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "postcss": "^8.5.8",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.13.2",
+    "recharts": "^3.8.1",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {

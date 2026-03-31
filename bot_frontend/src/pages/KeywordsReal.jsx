@@ -37,9 +37,15 @@ export default function KeywordsReal() {
     return (
         <div className="p-10 space-y-10 overflow-y-auto">
             <div className="space-y-2">
-                <h1 className="text-[28px] font-extrabold text-on-surface tracking-tight">
+
+                {/* ✅ UPDATED HEADING WITH ICON */}
+                <h1 className="text-[28px] font-extrabold text-on-surface tracking-tight flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary text-[28px]">
+                        query_stats
+                    </span>
                     Keyword Research
                 </h1>
+
                 <p className="text-on-surface-variant max-w-2xl leading-relaxed text-[15px]">
                     Live keyword difficulty + competition powered by SerpAPI (and AI-enhanced heuristics).
                 </p>
@@ -162,4 +168,3 @@ export default function KeywordsReal() {
         </div>
     );
 }
-
