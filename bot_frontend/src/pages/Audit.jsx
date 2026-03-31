@@ -267,24 +267,18 @@ export default function Audit() {
 
                             <div className="mt-2">
                                 <div className="text-[11px] font-extrabold uppercase text-outline tracking-widest mb-3">Issues Found</div>
-                                {Array.isArray(result.issues) && result.issues.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {result.issues.slice(0, 6).map((issue, i) => {
-                                            const message = typeof issue === 'object' && issue !== null ? (issue.text || issue.message || JSON.stringify(issue)) : issue;
-                                            return (
-                                                <div key={i} className="flex items-start gap-2 text-[13px] font-semibold text-[#c5221f]">
-                                                    <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
-                                                    <span className="leading-relaxed">{message}</span>
-                                                </div>
-                                            );
-                                        })}
-                                        {result.issues.length > 6 && (
-                                            <div className="text-xs font-bold text-on-surface-variant">+{result.issues.length - 6} more</div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div className="text-sm font-bold text-[#137333]">No issues found — looks good</div>
-                                )}
+                            {Array.isArray(result.issues) && result.issues.length > 0 ? (
+                                <div className="space-y-2">
+                                    {Array.from(new Set([...(result.issues || []), ...(result.missing_on_page || [])])).slice(0, 6).map((issue, i) => (
+                                        <div key={i} className="flex items-start gap-2 text-[13px] font-semibold text-[#c5221f]">
+                                            <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
+                                            <span className="leading-relaxed">{typeof issue === 'object' && issue !== null ? (issue.text || issue.message || JSON.stringify(issue)) : issue}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-sm font-bold text-[#137333]">No issues found — looks good</div>
+                            )}
                             </div>
                         </div>
 
@@ -366,20 +360,6 @@ export default function Audit() {
                         </div>
                     </div>
 
-                    {/* Missing / Weak elements */}
-                    {Array.isArray(result.missing_on_page) && result.missing_on_page.length > 0 && (
-                        <div className="bg-[#fef7e0] border border-[#fdd663] rounded-2xl p-5 sm:p-6">
-                            <div className="text-[11px] font-extrabold uppercase tracking-widest text-[#b06000] mb-3">Missing or weak on your page</div>
-                            <ul className="space-y-2 text-sm font-semibold text-[#5f4b00]">
-                                {result.missing_on_page.map((m, i) => (
-                                    <li key={i} className="flex gap-2">
-                                        <span className="text-[#b06000] shrink-0">•</span>
-                                        <span>{m}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
 
                     {/* Live SERP */}
                     {result.serp_snapshot?.organic_results?.length > 0 && (

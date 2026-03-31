@@ -69,10 +69,13 @@ def seo_audit(data):
         score -= 5
         issues.append("Too few internal links (less than 3)")
 
+    # Deduplicate issues so the report doesn't show repeated entries
+    unique_issues = list(dict.fromkeys(issues))
+
     return {
         "seo_score": max(0, score),  # never go below 0
-        "issues": issues,
-        "issues_count": len(issues),
+        "issues": unique_issues,
+        "issues_count": len(unique_issues),
         "meta_description": description,  # used by seo_analyzer.py
         "images_without_alt": images_without_alt,
         "broken_links": broken_links,
