@@ -91,7 +91,7 @@ export default function App() {
                             {/* <Route path="links" element={<InternalLinksReal />} /> */}
                             {/* <Route path="tools" element={<ToolsReal />} /> */}
                             <Route path="profile" element={<UserRoute><Profile /></UserRoute>} />
-                            <Route path="settings" element={<UserRoute><Settings /></UserRoute>} />
+                            <Route path="settings" element={<Settings />} />
                             <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
                         </Route>
 

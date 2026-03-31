@@ -15,6 +15,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     avatar = models.ImageField(upload_to=user_avatar_upload_to, blank=True, null=True)
     deactivation_reason = models.TextField(blank=True, null=True, help_text="Reason for disabling the account")
+    is_deleted = models.BooleanField(default=False, help_text="Soft delete flag")
     api_calls_used = models.PositiveIntegerField(default=0)
     websites_searched = models.PositiveIntegerField(default=0)
     data_received_bytes = models.BigIntegerField(default=0)

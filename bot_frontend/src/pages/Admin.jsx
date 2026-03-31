@@ -79,8 +79,8 @@ export default function Admin() {
         setActionLoading(true);
         try {
             await adminDeleteUser(user.id);
-            setUsers(prev => prev.filter(u => u.id !== user.id));
-            if (selected?.id === user.id) setSelected(null);
+            setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_deleted: true } : u));
+            setSelected(prev => prev?.id === user.id ? { ...prev, is_deleted: true } : prev);
             setConfirmDelete(null);
             setMsg(`User ${user.username} deleted.`);
         } catch {
@@ -95,6 +95,7 @@ export default function Admin() {
         if (!matchesSearch) return false;
         if (statusFilter === 'active') return u.is_active;
         if (statusFilter === 'inactive') return !u.is_active;
+        if (statusFilter === 'deleted') return u.is_deleted;
         if (statusFilter === 'admin') return u.is_staff || u.is_superuser;
         return true;
     });
@@ -103,6 +104,7 @@ export default function Admin() {
         { label: 'Total Users', id: 'all', value: stats?.users?.total ?? users.length, icon: 'group', color: 'text-blue-600 bg-blue-50' },
         { label: 'Active', id: 'active', value: stats?.users?.active ?? users.filter(u => u.is_active).length, icon: 'check_circle', color: 'text-green-600 bg-green-50' },
         { label: 'Inactive', id: 'inactive', value: stats?.users ? (stats.users.total - stats.users.active) : users.filter(u => !u.is_active).length, icon: 'block', color: 'text-orange-600 bg-orange-50' },
+        { label: 'Deleted', id: 'deleted', value: users.filter(u => u.is_deleted).length, icon: 'delete', color: 'text-red-600 bg-red-50' },
         { label: 'Admins', id: 'admin', value: stats?.users?.admins ?? users.filter(u => u.is_staff).length, icon: 'admin_panel_settings', color: 'text-purple-600 bg-purple-50' },
     ];
 
@@ -168,6 +170,17 @@ export default function Admin() {
                                 className="bg-transparent border-none focus:ring-0 text-sm w-full outline-none placeholder:text-outline/60"
                             />
                         </div>
+                        <select
+                            value={statusFilter}
+                            onChange={e => setStatusFilter(e.target.value)}
+                            className="bg-surface-container-low border border-[#dadce0] rounded-xl px-3 py-2.5 text-sm outline-none"
+                        >
+                            <option value="all">All Users</option>
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                            <option value="deleted">Deleted</option>
+                            <option value="admin">Admins</option>
+                        </select>
                     </div>
 
                     {loading ? (
@@ -196,9 +209,11 @@ export default function Admin() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0 ml-2">
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${u.is_active ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            u.is_deleted ? 'bg-gray-100 text-gray-600' :
+                                            u.is_active ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'
                                             }`}>
-                                            {u.is_active ? 'Active' : 'Inactive'}
+                                            {u.is_deleted ? 'Deleted' : u.is_active ? 'Active' : 'Inactive'}
                                         </span>
                                         <span className="text-xs text-outline">{u.project_count ?? 0} sites</span>
                                     </div>
@@ -239,8 +254,11 @@ export default function Admin() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-outline">Status</span>
-                                    <span className={`font-bold ${selected.is_active ? 'text-green-600' : 'text-red-500'}`}>
-                                        {selected.is_active ? 'Active' : 'Inactive'}
+                                    <span className={`font-bold ${
+                                        selected.is_deleted ? 'text-gray-600' :
+                                        selected.is_active ? 'text-green-600' : 'text-red-500'
+                                        }`}>
+                                        {selected.is_deleted ? 'Deleted' : selected.is_active ? 'Active' : 'Inactive'}
                                     </span>
                                 </div>
                                 {!selected.is_active && selected.deactivation_reason && (

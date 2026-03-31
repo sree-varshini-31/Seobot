@@ -85,6 +85,14 @@ export default function Sidebar({ mobileOpen, onNavigate }) {
                                     </>
                                 )}
                             </NavLink>
+                            <NavLink to="/settings" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>settings</span>
+                                        <span>Settings</span>
+                                    </>
+                                )}
+                            </NavLink>
                         </>
                     )}
 

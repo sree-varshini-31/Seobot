@@ -36,6 +36,12 @@ def _is_admin(user):
     return user.is_staff
 
 
+def _check_deleted(user):
+    """Check if user is soft deleted."""
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.is_deleted
+
+
 def _user_public_dict(request, user):
     profile, _ = UserProfile.objects.get_or_create(user=user)
     avatar_url = None
@@ -128,12 +134,17 @@ def login(request):
             reason = user_check.profile.deactivation_reason if hasattr(user_check, 'profile') else None
             msg = f"Account deactivated: {reason}" if reason else "Account deactivated by administrator."
             return Response({"success": False, "error": msg}, status=403)
+        if user_check.check_password(password) and user_check.profile.is_deleted:
+            return Response({"success": False, "error": "Account has been deleted."}, status=403)
     except User.DoesNotExist:
         pass
 
     user = authenticate(username=username, password=password)
     if not user:
         return Response({"success": False, "error": "Invalid credentials"}, status=401)
+
+    if user.profile.is_deleted:
+        return Response({"success": False, "error": "Account has been deleted."}, status=403)
 
     tokens = get_tokens(user)
     return Response({
@@ -165,6 +176,8 @@ def logout(request):
 def profile(request):
     """Read or update own profile (username / email)."""
     user = request.user
+    if _check_deleted(user):
+        return Response({"success": False, "error": "Account has been deleted."}, status=403)
     from projects.models import Project
     from audit.models import SEOAuditHistory
 
@@ -273,6 +286,8 @@ def profile_insights(request):
 @parser_classes([JSONParser, MultiPartParser, FormParser])
 def profile_avatar(request):
     """POST: multipart field `avatar`. DELETE: remove custom avatar."""
+    if _check_deleted(request.user):
+        return Response({"success": False, "error": "Account has been deleted."}, status=403)
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
     if request.method == "DELETE":
         if profile.avatar:
@@ -296,6 +311,8 @@ def profile_avatar(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def change_password(request):
+    if _check_deleted(request.user):
+        return Response({"success": False, "error": "Account has been deleted."}, status=403)
     old_pw = (request.data.get("old_password") or "").strip()
     new_pw = (request.data.get("new_password") or "").strip()
     if not old_pw or not new_pw:
@@ -381,6 +398,7 @@ def admin_users(request):
             "is_active": u.is_active,
             "is_staff": u.is_staff,
             "is_superuser": u.is_superuser,
+            "is_deleted": u.profile.is_deleted if hasattr(u, 'profile') else False,
             "date_joined": u.date_joined.strftime("%Y-%m-%d"),
             "project_count": u.project_count,
             "api_calls_used": u.profile.api_calls_used if hasattr(u, 'profile') else 0,
@@ -469,7 +487,9 @@ def admin_user_detail(request, user_id):
     if request.method == "DELETE":
         if target_user.id == request.user.id:
             return Response({"success": False, "error": "Cannot delete yourself"}, status=400)
-        target_user.delete()
+        profile, _ = UserProfile.objects.get_or_create(user=target_user)
+        profile.is_deleted = True
+        profile.save()
         return Response({"success": True, "message": "User deleted successfully"})
 
     if request.method == "PATCH":
