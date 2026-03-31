@@ -95,3 +95,13 @@ The React frontend will be accessible at `http://localhost:5173`.
 2. User **creates a Project** -> Triggers a `bot_backend` audit request for a target domain.
 3. User accesses **Keyword Research** -> Sends query to SERP module -> Renders volume matrices.
 4. User selects keywords and clicks **Generate Article** -> `generator` app contacts Groq/OpenAI -> Renders the drafted text back to the frontend editor.
+
+---
+
+## 🆕 Latest Updates
+- Audit issues are now deduplicated in backend (`bot_backend/audit/services.py`) and frontend (`bot_frontend/src/pages/Audit.jsx`) to avoid repeated error messages.
+- Combined “Issues Found” and “Missing or weak on your page” into a single unified list; removed additional `+n more` truncation indicator.
+- `Articles` page header now includes icon label (like `query_stats` style from Keywords page): `article` icon + heading.
+- Dashboard “Quick Actions” panel removed per UX cleanup request.
+- Generator service includes robust JSON fallback parsing for malformed AI output to reduce failed article generation tasks.
+
