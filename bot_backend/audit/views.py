@@ -76,3 +76,40 @@ def audit_website(request):
 
     except Exception as e:
         return Response({"success": False, "error": str(e)}, status=500)
+
+
+@api_view(["GET"])
+def get_audit_report(request):
+    """
+    Returns the latest cached SEO audit result for a project.
+    Accepts either ?project_id=<id> or ?url=<url>.
+    Used by the Admin panel to download PDFs without re-running the audit.
+    """
+    project_id = request.query_params.get("project_id")
+    url = request.query_params.get("url")
+
+    if not project_id and not url:
+        return Response({"success": False, "error": "project_id or url required"}, status=400)
+
+    try:
+        from audit.models import SEOAuditHistory
+
+        qs = SEOAuditHistory.objects.select_related('project').order_by('-created_at')
+
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        else:
+            qs = qs.filter(project__url=url)
+
+        latest = qs.first()
+
+        if not latest or not latest.full_result:
+            return Response(
+                {"success": False, "error": "No cached audit found for this project."},
+                status=404
+            )
+
+        return Response(latest.full_result)
+
+    except Exception as e:
+        return Response({"success": False, "error": str(e)}, status=500)

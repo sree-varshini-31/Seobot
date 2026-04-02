@@ -15,16 +15,21 @@ export default function Login() {
         setError(null);
         setLoading(true);
         try {
+            console.log('Attempting login with:', formData.username);
             const data = await apiClient('/auth/login/', { method: 'POST', body: formData });
+            console.log('Login response:', data);
             const access = data?.tokens?.access;
             const refresh = data?.tokens?.refresh;
             const user = data?.user;   // 👈 from backend
             
             if (access) {
                 login({ access, refresh, user });
+            } else {
+                setError('Login response missing access token');
             }
         } catch (err) {
-            setError(err?.error || err?.detail || 'Invalid username or password.');
+            console.error('Login error:', err);
+            setError(err?.error || err?.detail || err?.message || 'Invalid username or password.');
         } finally {
             setLoading(false);
         }

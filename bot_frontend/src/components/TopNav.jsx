@@ -14,8 +14,6 @@ export default function TopNav({ onMenuClick }) {
     const isAdmin = user?.role === 'admin' || user?.is_staff || user?.is_superuser;
 
     // Determine if we are on a home/dashboard route
-    const isDashboard = location.pathname === '/dashboard' || location.pathname === '/admin' || location.pathname === '/';
-
     useEffect(() => {
         function handleClickOutside(e) {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -29,9 +27,9 @@ export default function TopNav({ onMenuClick }) {
     const closeMenu = () => setDropdownOpen(false);
 
     return (
-        <header className="min-h-14 sm:h-16 sticky top-0 z-30 bg-[#fafafa]/95 backdrop-blur-md border-b-[1.5px] border-outline-variant/30 flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 lg:px-10 py-2 sm:py-0 w-full print-hidden">
-            {/* Left — mobile hamburger & contextual back button */}
-            <div className="flex items-center gap-2 min-w-0">
+        <header className="min-h-14 sm:h-16 sticky top-0 z-50 bg-[#fafafa]/95 backdrop-blur-md border-b-[1.5px] border-outline-variant/30 flex flex-wrap items-center justify-between gap-2 px-3 sm:px-6 lg:px-10 py-2 sm:py-0 w-full print-hidden">
+            {/* Left — mobile menu toggle */}
+            <div className="flex items-center gap-2">
                 <button
                     type="button"
                     className="md:hidden w-10 h-10 flex items-center justify-center rounded-xl hover:bg-[#f1f3f4] text-on-surface shrink-0"
@@ -40,49 +38,30 @@ export default function TopNav({ onMenuClick }) {
                 >
                     <span className="material-symbols-outlined text-[24px]">menu</span>
                 </button>
-
-                {!isDashboard && (
-                    <button
-                        type="button"
-                        onClick={() => navigate(isAdmin ? '/admin' : '/dashboard')}
-                        className="flex items-center gap-1.5 text-sm font-bold text-on-surface-variant hover:text-primary transition-colors hover:bg-primary/5 px-2 sm:px-3 py-1.5 rounded-lg shrink-0"
-                        title="Back to Dashboard"
-                    >
-                        <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-                        <span className="hidden sm:block">Back</span>
-                    </button>
-                )}
             </div>
 
-            {/* Right — admin badge + user info + avatar dropdown */}
-            <div className="relative flex items-center gap-2 shrink-0 ml-auto" ref={dropdownRef}>
-                {isAdmin && (
-                    <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold bg-purple-100 text-purple-700 rounded-full border border-purple-200">
-                        <span className="material-symbols-outlined text-[12px]">admin_panel_settings</span>
-                        Admin
-                    </span>
-                )}
-
-                <div className="hidden sm:block text-right max-w-[140px] lg:max-w-[200px] mr-1">
-                    <p className="text-xs sm:text-sm font-bold text-on-surface truncate">{displayName}</p>
-                    <p className="text-[10px] text-outline uppercase font-semibold truncate">
-                        {isAdmin ? 'Administrator' : (user?.plan || 'Free Plan')}
-                    </p>
-                </div>
-
+            {/* Right — profile section */}
+            <div className="relative flex items-center gap-3" ref={dropdownRef}>
                 <button
                     type="button"
                     onClick={() => setDropdownOpen(prev => !prev)}
-                    className="focus:outline-none ring-2 ring-transparent focus:ring-primary/30 rounded-full"
+                    className="flex items-center gap-2 text-right"
                     aria-label="Account menu"
                     aria-expanded={dropdownOpen}
                 >
+                    <div className="hidden sm:block text-right">
+                        <p className="text-xs sm:text-sm font-bold text-on-surface truncate">{displayName}</p>
+                        <p className="text-[10px] text-outline uppercase font-semibold truncate">
+                            {isAdmin ? 'Administrator' : (user?.plan || 'Free Plan')}
+                        </p>
+                    </div>
                     <img
                         src={avatarSrc}
                         alt=""
                         className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover border border-outline-variant/40"
                     />
                 </button>
+
 
                 {dropdownOpen && (
                     <div className="absolute right-0 top-full mt-2 w-[min(288px,calc(100vw-1.5rem))] bg-surface-container-lowest rounded-2xl shadow-xl border border-outline-variant/40 z-50 overflow-hidden">
@@ -112,16 +91,14 @@ export default function TopNav({ onMenuClick }) {
                                     Admin Panel
                                 </button>
                             )}
-                            {!isAdmin && (
-                                <button
-                                    type="button"
-                                    onClick={() => { closeMenu(); navigate('/profile'); }}
-                                    className="w-full flex items-center gap-3 px-5 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
-                                >
-                                    <span className="material-symbols-outlined text-outline text-[18px]">person</span>
-                                    Profile
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                onClick={() => { closeMenu(); navigate('/profile'); }}
+                                className="w-full flex items-center gap-3 px-5 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                            >
+                                <span className="material-symbols-outlined text-outline text-[18px]">person</span>
+                                Profile
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => { closeMenu(); navigate('/settings'); }}

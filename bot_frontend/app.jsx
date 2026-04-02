@@ -206,10 +206,12 @@ function Sidebar({ page, setPage, onLogout, projects, projectId, setProjectId, u
 
             {/* Agent status */}
             <div style={{ padding: "14px 16px", borderTop: "1.5px solid #eeedf5" }}>
-                <button className="nav-item" onClick={() => setPage("profile")} style={{ width: "100%", textAlign: "left", background: page === "profile" ? "#f0eeff" : "transparent", color: page === "profile" ? "#2962ff" : "#6b6888", border: "none", borderRadius: 9, padding: "9px 12px", cursor: "pointer", fontSize: 13.5, fontWeight: page === "profile" ? 600 : 500, display: "flex", alignItems: "center", gap: 10, marginBottom: 10, transition: "all 0.15s" }}>
-                    <span style={{ color: page === "profile" ? "#2962ff" : "#b8b4cc" }}>{Icon.user}</span>
-                    My Profile
-                </button>
+                {page !== "admin" && (
+                    <button className="nav-item" onClick={() => setPage("profile")} style={{ width: "100%", textAlign: "left", background: page === "profile" ? "#f0eeff" : "transparent", color: page === "profile" ? "#2962ff" : "#6b6888", border: "none", borderRadius: 9, padding: "9px 12px", cursor: "pointer", fontSize: 13.5, fontWeight: page === "profile" ? 600 : 500, display: "flex", alignItems: "center", gap: 10, marginBottom: 10, transition: "all 0.15s" }}>
+                        <span style={{ color: page === "profile" ? "#2962ff" : "#b8b4cc" }}>{Icon.user}</span>
+                        My Profile
+                    </button>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#f5f3ff", borderRadius: 9, padding: "9px 12px", marginBottom: 10 }}>
                     <div style={{ width: 7, height: 7, background: "#16a34a", borderRadius: "50%", animation: "pulse 2s infinite", flexShrink: 0 }} />
                     <div>

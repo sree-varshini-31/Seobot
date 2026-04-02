@@ -1,4 +1,4 @@
-const BASE_URL = 'http://127.0.0.1:8000/api';
+const BASE_URL = 'http://localhost:8000/api';
 
 // ─── Core fetch wrapper ───────────────────────────────────────────────────────
 
@@ -20,31 +20,55 @@ export const apiClient = async (endpoint, { body, method = 'GET', ...customConfi
         config.body = JSON.stringify(body);
     }
 
-    const response = await fetch(`${BASE_URL}${endpoint}`, config);
+    console.log(`API Request: ${method} ${BASE_URL}${endpoint}`, body ? { body } : '');
+    
+    try {
+        const response = await fetch(`${BASE_URL}${endpoint}`, config);
+        console.log(`API Response: ${response.status} ${response.statusText}`, response);
 
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            console.error('API Error:', error);
 
-        // Only auto-redirect on 401 if it's NOT an auth endpoint
-        if (
-            response.status === 401 &&
-            !endpoint.includes('/auth/login') &&
-            !endpoint.includes('/auth/register')
-        ) {
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
-            window.location.href = '/login';
-            return Promise.reject(new Error('Unauthorized'));
+            // Only auto-redirect on 401 if it's NOT an auth endpoint
+            if (
+                response.status === 401 &&
+                !endpoint.includes('/auth/login') &&
+                !endpoint.includes('/auth/register')
+            ) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                window.location.href = '/login';
+                return Promise.reject(new Error('Unauthorized'));
+            }
+
+            return Promise.reject(error);
         }
 
-        return Promise.reject(error);
-    }
+        if (response.status === 204) {
+            return null;
+        }
 
-    if (response.status === 204) {
-        return null;
+        const result = await response.json();
+        console.log('API Success:', result);
+        return result;
+    } catch (fetchError) {
+        console.error('Fetch failed:', {
+            error: fetchError,
+            message: fetchError.message,
+            stack: fetchError.stack,
+            endpoint: `${BASE_URL}${endpoint}`,
+            method,
+            body
+        });
+        
+        // More specific error handling
+        if (fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+            return Promise.reject(new Error('Network error: Unable to connect to the server. Please check if the backend is running on port 8000.'));
+        }
+        
+        return Promise.reject(fetchError);
     }
-
-    return response.json();
 };
 
 // ─── Projects ────────────────────────────────────────────────────────────────

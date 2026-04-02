@@ -5,6 +5,7 @@ import { ProjectProvider } from './context/ProjectContext';
 
 import Sidebar from './components/Sidebar';
 import TopNav from './components/TopNav';
+import PageBackButton from './components/PageBackButton';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -15,7 +16,8 @@ import InternalLinksReal from './pages/InternalLinksReal';
 import ToolsReal from './pages/ToolsReal';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
-import Admin from './pages/Admin';
+import AdminUsers from './pages/AdminUsers';
+import AdminProjects from './pages/AdminProjects';
 
 // ── Route guards ──────────────────────────────────────────────────────────────
 
@@ -61,6 +63,7 @@ function AppLayout() {
             <Sidebar mobileOpen={mobileNavOpen} onNavigate={() => setMobileNavOpen(false)} />
             <main className="flex-1 flex flex-col min-w-0 bg-background h-screen w-0">
                 <TopNav onMenuClick={() => setMobileNavOpen(true)} />
+                <PageBackButton />
                 <div className="flex-1 overflow-y-auto w-full overflow-x-hidden">
                     <Outlet />
                 </div>
@@ -85,14 +88,16 @@ export default function App() {
                         <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
                             <Route index element={<RoleBasedIndex />} />
                             <Route path="dashboard" element={<UserRoute><Dashboard /></UserRoute>} />
-                            <Route path="audit" element={<UserRoute><Audit /></UserRoute>} />
+                            <Route path="audit" element={<PrivateRoute><Audit /></PrivateRoute>} />
                             <Route path="keywords" element={<UserRoute><KeywordsReal /></UserRoute>} />
                             <Route path="articles" element={<UserRoute><ArticlesReal /></UserRoute>} />
                             {/* <Route path="links" element={<InternalLinksReal />} /> */}
                             {/* <Route path="tools" element={<ToolsReal />} /> */}
                             <Route path="profile" element={<UserRoute><Profile /></UserRoute>} />
                             <Route path="settings" element={<Settings />} />
-                            <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
+                            <Route path="admin" element={<Navigate to="/admin/users" replace />} />
+                            <Route path="admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
+                            <Route path="admin/projects" element={<AdminRoute><AdminProjects /></AdminRoute>} />
                         </Route>
 
                         {/* Catch-all */}

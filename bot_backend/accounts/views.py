@@ -134,7 +134,7 @@ def login(request):
             reason = user_check.profile.deactivation_reason if hasattr(user_check, 'profile') else None
             msg = f"Account deactivated: {reason}" if reason else "Account deactivated by administrator."
             return Response({"success": False, "error": msg}, status=403)
-        if user_check.check_password(password) and user_check.profile.is_deleted:
+        if user_check.check_password(password) and hasattr(user_check, 'profile') and user_check.profile.is_deleted:
             return Response({"success": False, "error": "Account has been deleted."}, status=403)
     except User.DoesNotExist:
         pass
@@ -143,7 +143,7 @@ def login(request):
     if not user:
         return Response({"success": False, "error": "Invalid credentials"}, status=401)
 
-    if user.profile.is_deleted:
+    if hasattr(user, 'profile') and user.profile.is_deleted:
         return Response({"success": False, "error": "Account has been deleted."}, status=403)
 
     tokens = get_tokens(user)

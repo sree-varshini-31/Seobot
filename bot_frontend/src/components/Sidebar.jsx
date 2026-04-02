@@ -85,48 +85,34 @@ export default function Sidebar({ mobileOpen, onNavigate }) {
                                     </>
                                 )}
                             </NavLink>
-                            <NavLink to="/settings" onClick={close} className={linkClasses}>
-                                {({ isActive }) => (
-                                    <>
-                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>settings</span>
-                                        <span>Settings</span>
-                                    </>
-                                )}
-                            </NavLink>
                         </>
                     )}
 
                     {/* Admin only */}
                     {isAdmin && (
-                        <NavLink to="/admin" onClick={close} className={linkClasses}>
-                            {({ isActive }) => (
-                                <>
-                                    <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>admin_panel_settings</span>
-                                    <span>Admin Panel</span>
-                                </>
-                            )}
-                        </NavLink>
+                        <>
+                            <NavLink to="/admin/users" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>group</span>
+                                        <span>Users</span>
+                                    </>
+                                )}
+                            </NavLink>
+                            <NavLink to="/admin/projects" onClick={close} className={linkClasses}>
+                                {({ isActive }) => (
+                                    <>
+                                        <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>dataset</span>
+                                        <span>Projects</span>
+                                    </>
+                                )}
+                            </NavLink>
+                        </>
                     )}
                 </nav>
 
                 {/* Bottom links */}
                 <div className="mt-auto pt-4 border-t border-[#dadce0] space-y-1">
-                    <NavLink to="/profile" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>person</span>
-                                <span>Profile</span>
-                            </>
-                        )}
-                    </NavLink>
-                    <NavLink to="/settings" onClick={close} className={linkClasses}>
-                        {({ isActive }) => (
-                            <>
-                                <span className="material-symbols-outlined" style={isActive ? activeIconStyles : iconStyles}>settings</span>
-                                <span>Settings</span>
-                            </>
-                        )}
-                    </NavLink>
                     <button
                         type="button"
                         onClick={() => { close(); logout(); }}
